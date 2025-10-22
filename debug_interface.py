@@ -106,6 +106,8 @@ class DebugInterface:
             self.publish_state(sorted(self._hid.active_buttons))
         elif command == "PAIR":
             self._trigger_pairing()
+        elif command == "LOG" and len(args) >= 2:
+            self._handle_host_log(args)
         elif command == "HELP":
             self._send_help()
         else:
@@ -138,6 +140,18 @@ class DebugInterface:
         self._ble_manager.enter_pairing_mode()
         self._send_message("INFO", {"message": "Pairing mode requested"})
 
+    def _handle_host_log(self, args):
+        """Log a message forwarded by the host UI."""
+        level = args[0]
+        logger_name = args[1]
+        message = " ".join(args[2:]) if len(args) > 2 else ""
+        message = message.replace("\\n", "\n")
+        try:
+            target_logger = get_logger(logger_name)
+            target_logger.log(level, message)
+        except Exception as exc:  # pragma: no cover - defensive
+            self._send_message("ERR", {"message": f"LOG failed: {exc}"})
+
     def _send_help(self):
         """Publish available commands."""
         help_text = {
@@ -146,6 +160,7 @@ class DebugInterface:
                 "RELEASE <BUTTON>",
                 "STATE?",
                 "PAIR",
+                "LOG <LEVEL> <LOGGER> <MESSAGE>",
                 "HELP",
             ],
             "buttons": self._hid.button_names,

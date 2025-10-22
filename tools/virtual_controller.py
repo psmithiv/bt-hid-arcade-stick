@@ -17,16 +17,23 @@ from typing import Dict, Iterable, Optional, Sequence
 from PySide6.QtCore import Q_ARG, QObject, QThread, Qt, QMetaObject, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QComboBox,
+    QLineEdit,
     QMainWindow,
+    QStyle,
+    QToolButton,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
+
+from PySide6.QtGui import QTextCursor, QTextDocument
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -43,6 +50,13 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
 SYSTEM_BUTTONS = ["START", "SELECT", "HOME"]
 DEFAULT_BAUDRATE = 115_200
+_LEVEL_PRIORITY = {
+    "DEBUG": 10,
+    "INFO": 20,
+    "WARNING": 30,
+    "ERROR": 40,
+    "CRITICAL": 50,
+}
 
 
 @dataclass
@@ -194,18 +208,61 @@ class DebuggerWindow(QMainWindow):
 
         layout.addWidget(self._build_system_group())
 
+        self._log_filter = QComboBox()
+        self._log_filter.addItems(["ALL", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        self._log_filter.setCurrentText("INFO")
+        self._log_filter.currentTextChanged.connect(self._handle_log_filter_change)
+        self._search_term = ""
+        self._search_cursor: Optional[QTextCursor] = None
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("Search logs")
+        self._search_input.textChanged.connect(self._handle_search_text_change)
+        self._search_prev_button = QToolButton()
+        self._search_prev_button.setIcon(self.style().standardIcon(QStyle.SP_ArrowBack))
+        self._search_prev_button.clicked.connect(self._search_previous)
+        self._search_next_button = QToolButton()
+        self._search_next_button.setIcon(self.style().standardIcon(QStyle.SP_ArrowForward))
+        self._search_next_button.clicked.connect(self._search_next)
+        self._logger_name = "virtual_controller"
+
         self._log_view = QTextEdit()
         self._log_view.setReadOnly(True)
         self._log_view.setPlaceholderText("Waiting for device logs...")
+        log_controls = QHBoxLayout()
+        log_controls.addWidget(QLabel("Log level:"))
+        log_controls.addWidget(self._log_filter)
+        log_controls.addStretch()
+        log_controls.addWidget(QLabel("Search:"))
+        log_controls.addWidget(self._search_input)
+        log_controls.addWidget(self._search_prev_button)
+        log_controls.addWidget(self._search_next_button)
+        save_button = QToolButton()
+        save_button.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        save_button.setToolTip("Save log to file")
+        save_button.clicked.connect(self._handle_save_logs)
+        log_controls.addWidget(save_button)
+        clear_button = QToolButton()
+        clear_button.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+        clear_button.setToolTip("Clear log")
+        clear_button.clicked.connect(self._handle_clear_logs)
+        log_controls.addWidget(clear_button)
+        layout.addLayout(log_controls)
         layout.addWidget(self._log_view)
 
         self.setCentralWidget(central)
+        self._app = QApplication.instance()
+        if self._app is not None:
+            self._app.aboutToQuit.connect(self._handle_app_quit)
 
         self._serial_bridge: Optional[SerialBridge] = None
         self._serial_connected = False
         self._serial_config = serial_config
         self._valid_buttons = set(self._button_widgets.keys())
         self._logger = get_logger("virtual_controller")
+        self._log_history: list[tuple[str, str]] = []
+        self._log_filter_level = "INFO"
+        self._pending_remote_logs: set[tuple[str, str]] = set()
+        self._update_search_controls()
 
         self._set_controls_enabled(False)
 
@@ -224,10 +281,19 @@ class DebuggerWindow(QMainWindow):
                 self._log_info("No serial port provided; launch with --port PATH or enable auto-detect support.")
 
     def closeEvent(self, event):  # noqa: D401 - Qt override
-        if self._serial_bridge is not None:
-            self._serial_bridge.stop()
-            self._serial_bridge = None
+        self._cleanup()
+        event.accept()
         super().closeEvent(event)
+
+    def _handle_app_quit(self):
+        self._cleanup()
+
+    def _cleanup(self):
+        if self._serial_bridge is not None:
+            try:
+                self._serial_bridge.stop()
+            finally:
+                self._serial_bridge = None
 
     # ------------------------------------------------------------------
     # UI construction helpers
@@ -321,20 +387,20 @@ class DebuggerWindow(QMainWindow):
     def _handle_serial_line(self, line: str):
         if not line.startswith("DBG "):
             level = self._infer_level(line) or "INFO"
-            self._log_with_level(level, line)
+            self._record_log(level, line)
             return
 
         parts = line.split(" ", 2)
         if len(parts) < 3:
             level = self._infer_level(line) or "INFO"
-            self._log_with_level(level, line)
+            self._record_log(level, line)
             return
         _, label, payload = parts
         try:
             data = json.loads(payload)
         except json.JSONDecodeError:
             level = self._infer_level(payload) or "INFO"
-            self._log_with_level(level, f"{label}: {payload}")
+            self._record_log(level, f"{label}: {payload}")
             return
 
         label = label.upper()
@@ -342,12 +408,12 @@ class DebuggerWindow(QMainWindow):
             self._handle_state_message(data)
         elif label == "READY":
             self._handle_ready_message(data)
-            self._log_info("Device reported ready.")
+            self._record_log("INFO", "Device reported ready.")
         elif label == "LOG":
             level = data.get("level", "INFO")
             logger = data.get("logger") or "firmware"
             message = data.get("message", "")
-            self._log_with_level(level, f"{logger}: {message}")
+            self._record_log(level, f"{logger}: {message}")
         else:
             text = data.get("message") if isinstance(data, dict) and "message" in data else json.dumps(data)
             normalized_label = label.upper()
@@ -357,10 +423,10 @@ class DebuggerWindow(QMainWindow):
             }
             level = level_aliases.get(normalized_label, normalized_label)
             if level in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-                self._log_with_level(level, text)
+                self._record_log(level, text)
             else:
                 fallback_level = self._infer_level(text) or "INFO"
-                self._log_with_level(fallback_level, f"{label}: {text}")
+                self._record_log(fallback_level, f"{label}: {text}")
 
     # ------------------------------------------------------------------
     # Message handlers
@@ -377,7 +443,7 @@ class DebuggerWindow(QMainWindow):
                 self._valid_buttons = normalized
                 missing = normalized - set(self._button_widgets.keys())
                 if missing:
-                    self._log_warning(f"Ready message references unknown buttons: {sorted(missing)}")
+                    self._record_log("WARNING", f"Ready message references unknown buttons: {sorted(missing)}")
         self._status_label.setText("Status: Ready")
 
     # ------------------------------------------------------------------
@@ -392,13 +458,18 @@ class DebuggerWindow(QMainWindow):
         except ValueError:
             numeric_level = INFO
             level_name = "INFO"
+
+        if self._serial_connected and self._serial_bridge is not None:
+            if self._send_log_command(level_name, message):
+                display_message = f"{self._logger_name}: {message}"
+                display = self._format_display(level_name, display_message)
+                self._pending_remote_logs.add((level_name, display))
+                self._append_log_entry(level_name, display)
+                return
+
+        # Fallback to local logging when not connected or transmission fails.
         self._logger.log(numeric_level, message)
-        display = message
-        normalized = message.lstrip()
-        prefix = f"[{level_name}]"
-        if not normalized.startswith(prefix):
-            display = f"{prefix} {message}"
-        self._log_view.append(display)
+        self._record_log(level_name, message)
 
     def _log_info(self, message: str):
         self._log_with_level("INFO", message)
@@ -412,6 +483,39 @@ class DebuggerWindow(QMainWindow):
     def _log_debug(self, message: str):
         self._log_with_level("DEBUG", message)
 
+    def _record_log(self, level_name: str, message: str):
+        level_name = str(level_name).upper()
+        display = self._format_display(level_name, message)
+        entry = (level_name, display)
+        if entry in self._pending_remote_logs:
+            self._pending_remote_logs.discard(entry)
+            return
+        self._append_log_entry(level_name, display)
+
+    def _append_log_entry(self, level_name: str, display: str):
+        entry = (level_name, display)
+        self._log_history.append(entry)
+        if self._should_display(level_name):
+            self._log_view.append(display)
+        self._update_search_controls()
+
+    @staticmethod
+    def _format_display(level_name: str, message: str) -> str:
+        prefix = f"[{level_name}]"
+        normalized = message.lstrip()
+        return message if normalized.startswith(prefix) else f"{prefix} {message}"
+
+    def _send_log_command(self, level_name: str, message: str) -> bool:
+        if self._serial_bridge is None:
+            return False
+        sanitized = message.replace("\r", " ").replace("\n", "\\n")
+        command = f"LOG {level_name} {self._logger_name} {sanitized}"
+        try:
+            self._send_command(command, echo=False)
+            return True
+        except Exception:
+            return False
+
     @staticmethod
     def _infer_level(message: str) -> Optional[str]:
         stripped = message.lstrip()
@@ -422,6 +526,114 @@ class DebuggerWindow(QMainWindow):
                 if candidate in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
                     return candidate
         return None
+
+    def _handle_log_filter_change(self, text: str):
+        self._log_filter_level = text.upper()
+        self._refresh_log_view()
+
+    def _handle_clear_logs(self):
+        self._log_history.clear()
+        self._pending_remote_logs.clear()
+        self._log_view.clear()
+        self._search_cursor = None
+        self._restart_search()
+        self._update_search_controls()
+
+    def _handle_save_logs(self):
+        if not self._log_history:
+            return
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Log",
+            "",
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if not filename:
+            return
+        try:
+            with open(filename, "w", encoding="utf-8") as fh:
+                for _, display in self._log_history:
+                    fh.write(display)
+                    fh.write("\n")
+        except Exception as exc:  # pragma: no cover - filesystem issues
+            self._record_log("ERROR", f"Failed to save log: {exc}")
+
+    def _refresh_log_view(self):
+        self._log_view.clear()
+        for level_name, display in self._log_history:
+            if self._should_display(level_name):
+                self._log_view.append(display)
+        # After rebuilding the view, reset search highlight if needed.
+        self._restart_search()
+        self._update_search_controls()
+
+    def _should_display(self, level_name: str) -> bool:
+        if self._log_filter_level == "ALL":
+            return True
+        level_value = _LEVEL_PRIORITY.get(level_name, INFO)
+        threshold = _LEVEL_PRIORITY.get(self._log_filter_level, INFO)
+        return level_value >= threshold
+
+    def _handle_search_text_change(self, text: str):
+        self._search_term = text
+        self._search_cursor = None
+        self._update_search_controls()
+        if text:
+            self._restart_search()
+        else:
+            cursor = self._log_view.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            self._log_view.setTextCursor(cursor)
+
+    def _search_next(self):
+        self._find_match(forward=True)
+
+    def _search_previous(self):
+        self._find_match(forward=False)
+
+    def _find_match(self, forward: bool, restart: bool = False):
+        if not self._search_term:
+            return
+
+        document = self._log_view.document()
+        flags = QTextDocument.FindFlags()
+        if not forward:
+            flags |= QTextDocument.FindBackward
+
+        if restart or self._search_cursor is None:
+            cursor = QTextCursor(document)
+            cursor.movePosition(QTextCursor.Start if forward else QTextCursor.End)
+        else:
+            cursor = QTextCursor(document)
+            if forward:
+                cursor.setPosition(self._search_cursor.selectionEnd())
+            else:
+                cursor.setPosition(self._search_cursor.selectionStart())
+
+        result = document.find(self._search_term, cursor, flags)
+        if result.isNull():
+            wrap_cursor = QTextCursor(document)
+            wrap_cursor.movePosition(QTextCursor.Start if forward else QTextCursor.End)
+            result = document.find(self._search_term, wrap_cursor, flags)
+        if result.isNull():
+            self._search_cursor = None
+            return
+
+        self._search_cursor = result
+        self._log_view.setTextCursor(result)
+        self._log_view.ensureCursorVisible()
+
+    def _restart_search(self):
+        if not self._search_term:
+            self._search_cursor = None
+            return
+        self._search_cursor = None
+        self._find_match(forward=True, restart=True)
+
+    def _update_search_controls(self):
+        active = bool(self._search_term)
+        self._search_prev_button.setEnabled(active)
+        self._search_next_button.setEnabled(active)
 
     def _set_controls_enabled(self, enabled: bool):
         for button in self._button_widgets.values():
@@ -453,11 +665,12 @@ class DebuggerWindow(QMainWindow):
             return
         self._send_command(f"RELEASE {name}")
 
-    def _send_command(self, command: str):
+    def _send_command(self, command: str, *, echo: bool = True):
         if self._serial_bridge is None:
             self._log_warning(f"Cannot send '{command}'; serial bridge unavailable.")
             return
-        self._log_debug(f"-> {command}")
+        if echo:
+            self._log_debug(f"-> {command}")
         self._serial_bridge.send(command)
 
 
@@ -488,7 +701,7 @@ def run(argv: Optional[Sequence[str]] = None):
     serial_config, qt_args = _parse_args(raw_argv)
     app = QApplication(qt_args)
     window = DebuggerWindow(serial_config)
-    window.resize(720, 480)
+    window.resize(960, 640)
     window.show()
     return app.exec()
 
