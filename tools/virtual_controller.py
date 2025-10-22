@@ -48,7 +48,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
     serial = None  # type: ignore
     list_ports = None  # type: ignore
 
-SYSTEM_BUTTONS = ["START", "SELECT", "HOME"]
+SYSTEM_BUTTONS = ["HOME", "START", "SELECT", "PAIRING"]
 DEFAULT_BAUDRATE = 115_200
 _LEVEL_PRIORITY = {
     "DEBUG": 10,
@@ -233,21 +233,49 @@ class DebuggerWindow(QMainWindow):
         log_controls.addWidget(self._log_filter)
         log_controls.addStretch()
         log_controls.addWidget(QLabel("Search:"))
+        self._search_input.setStyleSheet(
+            """
+            QLineEdit {
+                border-radius: 6px;
+                padding: 3px 5px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #666;
+                box-shadow: 0 0 6px rgba(80, 80, 80, 0.6);
+            }
+            """
+        )
         log_controls.addWidget(self._search_input)
+        button_style = "border-radius: 6px;"
+        self._search_prev_button.setFixedHeight(32)
+        self._search_prev_button.setStyleSheet(button_style)
         log_controls.addWidget(self._search_prev_button)
+        self._search_next_button.setFixedHeight(32)
+        self._search_next_button.setStyleSheet(button_style)
         log_controls.addWidget(self._search_next_button)
         save_button = QToolButton()
         save_button.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         save_button.setToolTip("Save log to file")
         save_button.clicked.connect(self._handle_save_logs)
+        save_button.setFixedHeight(32)
+        save_button.setStyleSheet(button_style)
         log_controls.addWidget(save_button)
         clear_button = QToolButton()
         clear_button.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
         clear_button.setToolTip("Clear log")
         clear_button.clicked.connect(self._handle_clear_logs)
+        clear_button.setFixedHeight(32)
+        clear_button.setStyleSheet(button_style)
         log_controls.addWidget(clear_button)
-        layout.addLayout(log_controls)
-        layout.addWidget(self._log_view)
+
+        log_group_layout = QVBoxLayout()
+        log_group_layout.addLayout(log_controls)
+        log_group_layout.addWidget(self._log_view)
+
+        log_group = QGroupBox("Logs")
+        log_group.setLayout(log_group_layout)
+
+        layout.addWidget(log_group)
 
         self.setCentralWidget(central)
         self._app = QApplication.instance()
@@ -318,12 +346,12 @@ class DebuggerWindow(QMainWindow):
         labels = (
             ("X", 0, 0),
             ("Y", 0, 1),
-            ("L1", 0, 2),
-            ("L2", 0, 3),
+            ("R1", 0, 2),
+            ("R2", 0, 3),
             ("A", 1, 0),
             ("B", 1, 1),
-            ("R1", 1, 2),
-            ("R2", 1, 3),
+            ("L1", 1, 2),
+            ("L2", 1, 3),
         )
         for name, row, col in labels:
             grid.addWidget(self._make_button(name), row, col)
