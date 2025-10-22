@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence
 
-from PySide6.QtCore import Q_ARG, QObject, QThread, Qt, QMetaObject, Signal, Slot
+from PySide6.QtCore import Q_ARG, QObject, QThread, Qt, QMetaObject, Signal, Slot, QEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -27,13 +27,14 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QStyle,
     QToolButton,
+    QGraphicsDropShadowEffect,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from PySide6.QtGui import QTextCursor, QTextDocument
+from PySide6.QtGui import QColor, QTextCursor, QTextDocument
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -238,13 +239,20 @@ class DebuggerWindow(QMainWindow):
             QLineEdit {
                 border-radius: 6px;
                 padding: 3px 5px;
+                border: 1px solid #bcbcbc;
             }
             QLineEdit:focus {
-                border: 1px solid #666;
-                box-shadow: 0 0 6px rgba(80, 80, 80, 0.6);
+                border: 1px solid #666666;
             }
             """
         )
+        self._search_glow = QGraphicsDropShadowEffect(self._search_input)
+        self._search_glow.setBlurRadius(12)
+        self._search_glow.setOffset(0, 0)
+        self._search_glow.setColor(QColor(80, 80, 80, 160))
+        self._search_glow.setEnabled(False)
+        self._search_input.setGraphicsEffect(self._search_glow)
+        self._search_input.installEventFilter(self)
         log_controls.addWidget(self._search_input)
         button_style = "border-radius: 6px;"
         self._search_prev_button.setFixedHeight(32)
@@ -662,6 +670,16 @@ class DebuggerWindow(QMainWindow):
         active = bool(self._search_term)
         self._search_prev_button.setEnabled(active)
         self._search_next_button.setEnabled(active)
+
+    def eventFilter(self, obj, event):
+        if obj is self._search_input:
+            if event.type() == QEvent.FocusIn:
+                if self._search_glow is not None:
+                    self._search_glow.setEnabled(True)
+            elif event.type() == QEvent.FocusOut:
+                if self._search_glow is not None:
+                    self._search_glow.setEnabled(False)
+        return super().eventFilter(obj, event)
 
     def _set_controls_enabled(self, enabled: bool):
         for button in self._button_widgets.values():
