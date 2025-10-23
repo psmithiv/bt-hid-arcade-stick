@@ -1,0 +1,32 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# IDE metadata
+.idea/
+.vscode/
+*.iml
+
+# Build artifacts
+build/
+dist/
+
+# Documentation output
+docs/_build/
+
+# CircuitPython specific
+sd/CIRCUITPY*
+*.mpy
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Platform-specific cruft
+.DS_Store
+Thumbs.db
