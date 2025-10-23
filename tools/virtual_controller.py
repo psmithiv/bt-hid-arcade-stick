@@ -10,11 +10,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence
+from queue import Empty, Queue
 
-from PySide6.QtCore import Q_ARG, QObject, QThread, Qt, QMetaObject, Signal, Slot, QEvent
+from PySide6.QtCore import Q_ARG, QObject, QThread, Qt, QMetaObject, Signal, Slot, QEvent, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -40,7 +42,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from firmware_logging import INFO, get_level_by_name, get_logger
+from firmware_logging import INFO, get_level_by_name
 
 try:  # pyserial is required for host <-> device communication.
     import serial  # type: ignore
@@ -65,6 +67,7 @@ class SerialConfig:
     port: Optional[str]
     baudrate: int = DEFAULT_BAUDRATE
     auto_detect: bool = True
+    print_logs: bool = False
 
 
 class _SerialWorker(QObject):
@@ -81,11 +84,15 @@ class _SerialWorker(QObject):
         self._baudrate = baudrate
         self._serial = None
         self._stop_requested = False
+        self._outgoing: Queue[bytes] = Queue()
+        self._timer: Optional[QTimer] = None
+        self._connected = False
 
     @Slot()
     def start(self):
         try:
-            self._serial = serial.Serial(self._port, self._baudrate, timeout=0.1)
+            self._serial = serial.Serial(self._port, self._baudrate, timeout=0.0, write_timeout=0.0)
+            self._connected = True
             self.connected_changed.emit(True)
         except Exception as exc:  # pragma: no cover - hardware interaction
             self.error.emit(f"Failed to open {self._port}: {exc}")
@@ -93,41 +100,77 @@ class _SerialWorker(QObject):
             self.finished.emit()
             return
 
-        try:
-            while not self._stop_requested:
-                try:
-                    line = self._serial.readline()
-                except Exception as exc:  # pragma: no cover - hardware interaction
-                    self.error.emit(f"Serial read failed: {exc}")
-                    break
-                if not line:
-                    continue
-                decoded = line.decode("utf-8", errors="replace").strip()
-                if decoded:
-                    self.line_received.emit(decoded)
-        finally:
-            self.connected_changed.emit(False)
-            if self._serial is not None:
-                try:
-                    self._serial.close()
-                except Exception:  # pragma: no cover - best-effort close
-                    pass
-            self.finished.emit()
+        self._timer = QTimer(self)
+        self._timer.setInterval(10)
+        self._timer.timeout.connect(self._poll_serial)
+        self._timer.start()
 
     @Slot(str)
     def send(self, text: str):
-        if self._serial is None:
-            return
-        try:
-            payload = text if text.endswith("\n") else f"{text}\n"
-            self._serial.write(payload.encode("utf-8"))
-            self._serial.flush()
-        except Exception as exc:  # pragma: no cover - hardware interaction
-            self.error.emit(f"Serial write failed: {exc}")
+        payload = text if text.endswith("\n") else f"{text}\n"
+        self._outgoing.put(payload.encode("utf-8"))
 
     @Slot()
     def stop(self):
         self._stop_requested = True
+
+    def _poll_serial(self):
+        if self._stop_requested:
+            self._shutdown()
+            return
+        self._flush_outgoing()
+        if self._stop_requested:
+            self._shutdown()
+            return
+        self._read_incoming()
+
+    def _flush_outgoing(self):
+        if self._serial is None:
+            return
+        while True:
+            try:
+                payload = self._outgoing.get_nowait()
+            except Empty:
+                break
+            try:
+                self._serial.write(payload)
+                self._serial.flush()
+            except Exception as exc:  # pragma: no cover - hardware interaction
+                self.error.emit(f"Serial write failed: {exc}")
+                self._stop_requested = True
+                break
+
+    def _read_incoming(self):
+        if self._serial is None:
+            return
+        try:
+            while True:
+                line = self._serial.readline()
+                if not line:
+                    break
+                decoded = line.decode("utf-8", errors="replace").strip()
+                if decoded:
+                    self.line_received.emit(decoded)
+        except Exception as exc:  # pragma: no cover - hardware interaction
+            self.error.emit(f"Serial read failed: {exc}")
+            self._stop_requested = True
+
+    def _shutdown(self):
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer.timeout.disconnect()
+            self._timer.deleteLater()
+            self._timer = None
+        if self._connected:
+            self.connected_changed.emit(False)
+            self._connected = False
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            except Exception:  # pragma: no cover - best-effort close
+                pass
+            self._serial = None
+        self.finished.emit()
 
 
 class SerialBridge(QObject):
@@ -161,6 +204,8 @@ class SerialBridge(QObject):
             QMetaObject.invokeMethod(self._worker, "stop", Qt.QueuedConnection)
             self._thread.quit()
             self._thread.wait()
+        if self._thread is not None:
+            self._thread.deleteLater()
         self._worker = None
         self._thread = None
 
@@ -225,6 +270,7 @@ class DebuggerWindow(QMainWindow):
         self._search_next_button.setIcon(self.style().standardIcon(QStyle.SP_ArrowForward))
         self._search_next_button.clicked.connect(self._search_next)
         self._logger_name = "virtual_controller"
+        self._search_glow: Optional[QGraphicsDropShadowEffect] = None
 
         self._log_view = QTextEdit()
         self._log_view.setReadOnly(True)
@@ -294,10 +340,9 @@ class DebuggerWindow(QMainWindow):
         self._serial_connected = False
         self._serial_config = serial_config
         self._valid_buttons = set(self._button_widgets.keys())
-        self._logger = get_logger("virtual_controller")
         self._log_history: list[tuple[str, str]] = []
         self._log_filter_level = "INFO"
-        self._pending_remote_logs: set[tuple[str, str]] = set()
+        self._print_logs = serial_config.print_logs
         self._update_search_controls()
 
         self._set_controls_enabled(False)
@@ -421,48 +466,25 @@ class DebuggerWindow(QMainWindow):
         self._log_error(f"Serial error: {message}")
 
     def _handle_serial_line(self, line: str):
-        if not line.startswith("DBG "):
-            level = self._infer_level(line) or "INFO"
-            self._record_log(level, line)
+        if not line:
             return
 
-        parts = line.split(" ", 2)
-        if len(parts) < 3:
-            level = self._infer_level(line) or "INFO"
-            self._record_log(level, line)
-            return
-        _, label, payload = parts
         try:
-            data = json.loads(payload)
+            data = json.loads(line)
         except json.JSONDecodeError:
-            level = self._infer_level(payload) or "INFO"
-            self._record_log(level, f"{label}: {payload}")
+            level = self._infer_level(line) or "INFO"
+            self._record_log(level, line)
             return
 
-        label = label.upper()
-        if label == "STATE":
+        msg_type = str(data.get("type", "")).upper()
+
+        if msg_type == "STATE":
             self._handle_state_message(data)
-        elif label == "READY":
+        elif msg_type == "READY":
             self._handle_ready_message(data)
-            self._record_log("INFO", "Device reported ready.")
-        elif label == "LOG":
-            level = data.get("level", "INFO")
-            logger = data.get("logger") or "firmware"
-            message = data.get("message", "")
-            self._record_log(level, f"{logger}: {message}")
-        else:
-            text = data.get("message") if isinstance(data, dict) and "message" in data else json.dumps(data)
-            normalized_label = label.upper()
-            level_aliases = {
-                "WARN": "WARNING",
-                "ERR": "ERROR",
-            }
-            level = level_aliases.get(normalized_label, normalized_label)
-            if level in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-                self._record_log(level, text)
-            else:
-                fallback_level = self._infer_level(text) or "INFO"
-                self._record_log(fallback_level, f"{label}: {text}")
+
+        level = data.get("level", "INFO" if msg_type == "LOG" else "INFO")
+        self._record_log(level, line)
 
     # ------------------------------------------------------------------
     # Message handlers
@@ -477,9 +499,6 @@ class DebuggerWindow(QMainWindow):
             normalized = {str(name).upper() for name in buttons}
             if normalized:
                 self._valid_buttons = normalized
-                missing = normalized - set(self._button_widgets.keys())
-                if missing:
-                    self._record_log("WARNING", f"Ready message references unknown buttons: {sorted(missing)}")
         self._status_label.setText("Status: Ready")
 
     # ------------------------------------------------------------------
@@ -490,22 +509,23 @@ class DebuggerWindow(QMainWindow):
         detected = self._infer_level(message)
         level_name = detected if detected is not None else base_level
         try:
-            numeric_level = get_level_by_name(level_name)
+            get_level_by_name(level_name)
         except ValueError:
-            numeric_level = INFO
             level_name = "INFO"
 
         if self._serial_connected and self._serial_bridge is not None:
             if self._send_log_command(level_name, message):
-                display_message = f"{self._logger_name}: {message}"
-                display = self._format_display(level_name, display_message)
-                self._pending_remote_logs.add((level_name, display))
-                self._append_log_entry(level_name, display)
                 return
 
         # Fallback to local logging when not connected or transmission fails.
-        self._logger.log(numeric_level, message)
-        self._record_log(level_name, message)
+        local_record = {
+            "type": "log",
+            "level": level_name,
+            "logger": self._logger_name,
+            "message": message,
+            "timestamp": time.monotonic(),
+        }
+        self._record_log(level_name, json.dumps(local_record))
 
     def _log_info(self, message: str):
         self._log_with_level("INFO", message)
@@ -519,27 +539,18 @@ class DebuggerWindow(QMainWindow):
     def _log_debug(self, message: str):
         self._log_with_level("DEBUG", message)
 
-    def _record_log(self, level_name: str, message: str):
+    def _record_log(self, level_name: str, raw_line: str):
         level_name = str(level_name).upper()
-        display = self._format_display(level_name, message)
-        entry = (level_name, display)
-        if entry in self._pending_remote_logs:
-            self._pending_remote_logs.discard(entry)
-            return
-        self._append_log_entry(level_name, display)
-
-    def _append_log_entry(self, level_name: str, display: str):
-        entry = (level_name, display)
+        entry = (level_name, raw_line)
         self._log_history.append(entry)
         if self._should_display(level_name):
-            self._log_view.append(display)
+            self._log_view.append(raw_line)
+        if self._print_logs:
+            try:
+                print(raw_line)
+            except Exception:
+                pass
         self._update_search_controls()
-
-    @staticmethod
-    def _format_display(level_name: str, message: str) -> str:
-        prefix = f"[{level_name}]"
-        normalized = message.lstrip()
-        return message if normalized.startswith(prefix) else f"{prefix} {message}"
 
     def _send_log_command(self, level_name: str, message: str) -> bool:
         if self._serial_bridge is None:
@@ -569,7 +580,6 @@ class DebuggerWindow(QMainWindow):
 
     def _handle_clear_logs(self):
         self._log_history.clear()
-        self._pending_remote_logs.clear()
         self._log_view.clear()
         self._search_cursor = None
         self._restart_search()
@@ -729,12 +739,18 @@ def _parse_args(argv: Sequence[str]) -> tuple[SerialConfig, Sequence[str]]:
         action="store_true",
         help="Disable automatic port detection when --port is not supplied.",
     )
+    parser.add_argument(
+        "--print-logs",
+        action="store_true",
+        help="Echo raw log lines to stdout.",
+    )
     parser.add_argument("-h", "--help", action="help", help="Show this help message and exit.")
     known, remaining = parser.parse_known_args(argv[1:])
     config = SerialConfig(
         port=known.port,
         baudrate=known.baudrate,
         auto_detect=not known.no_auto_detect,
+        print_logs=known.print_logs,
     )
     # Preserve argv[0] for Qt; QApplication expects the executable path at index 0.
     qt_args = [argv[0], *remaining]

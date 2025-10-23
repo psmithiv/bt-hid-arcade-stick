@@ -47,8 +47,8 @@ Virtual UI  ──┘                                    └─> USB HID (option
 | ------ | -------------- |
 | `code.py` | Entry point: loads configuration, sets log level, instantiates all managers, runs the main loop. |
 | `config.py` | Central configuration (button map, BLE/USB settings, debounce intervals, etc.). |
-| `firmware_logging.py` | Minimal logging framework (levels, sinks, formatters) used by every module. |
-| `input_manager.py` | Polls GPIO inputs (placeholder in current HEAD) and emits debounced `InputEvents`. |
+| `input_manager.py` | Polls GPIO inputs (wired as active-low with pull-ups by default) and emits debounced `InputEvents`. |
+| `firmware_logging.py` | Minimal logging framework (levels, JSON serial output) used by every module. |
 | `hid_controller.py` | Maintains controller state, maps logical buttons to HID report indices, dispatches to BLE/USB backends, notifies observers. |
 | `ble_manager.py` | Encapsulates BLE radio setup, advertising, pairing, bond management, and event notifications. |
 | `usb_hid_manager.py` | Manages optional mirroring of HID reports over USB. |
@@ -59,18 +59,47 @@ Virtual UI  ──┘                                    └─> USB HID (option
 
 | Module | Responsibility |
 | ------ | -------------- |
-| `tools/virtual_controller.py` | Qt-based debug UI: serial bridge, virtual inputs, log viewer (filter/search/save/clear), BLE status reporting. |
+| `tools/virtual_controller.py` | Qt-based debug UI: serial bridge, virtual inputs, log viewer (filter/search/save/clear), BLE status reporting. Run with `--print-logs` to echo raw JSON to stdout. |
 | `tests/` | Unit/integration tests (currently minimal) used to exercise host-side logic. |
+
+### Hardware Pin Mapping
+
+- `config.PIN_MAP` defines the association between logical buttons and physical GPIOs. Populate this dictionary with board pin objects (e.g. `board.D5`) or pin names (strings) before flashing the firmware.
+- Buttons are assumed to be wired as **active-low** with pull-up resistors. `InputManager` enables `Pull.UP` on each configured pin and treats `value == False` as “pressed”.
+- When a pin entry is `None`, that button is ignored during hardware polling (useful while wiring is in progress).
+
+Current mapping (Adafruit Feather M4 Express):
+
+| Button  | Pin |
+|---------|-----|
+| UP      | D5  |
+| DOWN    | D6  |
+| LEFT    | D9  |
+| RIGHT   | D10 |
+| A       | D11 |
+| B       | D12 |
+| X       | D13 |
+| Y       | D0  |
+| L1      | D1  |
+| R1      | D4  |
+| L2      | A0  |
+| R2      | A1  |
+| HOME    | A4  |
+| START   | A2  |
+| SELECT  | A3  |
+| PAIRING | A5  |
+
+> D5, D6, D9, D10, D11, D12, D13 are already soldered. Wire the remaining buttons to D0, D1, D4, A0, A1, A2, A3, A4, A5 as listed above.
 
 ---
 
 ## Logging Pipeline
 
-1. All firmware modules use `firmware_logging.get_logger(name)` to emit messages.
-2. `debug_interface.DebugInterface` installs a logging sink so each message is printed in the console as `DBG LOG {...}` and forwarded to any existing sink.
-3. The desktop UI listens for `DBG LOG` lines, decodes JSON payloads, and styles/logs them locally.
-4. When the UI wants to log something (e.g., “Connecting to …”), it sends a `LOG <LEVEL> <LOGGER> <MESSAGE>` command over serial. The firmware receives it in `_handle_host_log`, emits the log via the same logger, and the message is mirrored back through the standard path.  
-   This keeps firmware as the single source of truth for diagnostics.
+1. Firmware modules use `firmware_logging.get_logger(name)` to emit messages.
+2. `firmware_logging` prints each record to the serial console as a JSON line: `{"type": "log", "level": "...", "logger": "...", "message": "...", "timestamp": ...}`. Any connected host can parse these lines directly.
+3. `debug_interface.DebugInterface` emits other structured events (state snapshots, readiness, BLE notifications, etc.) as JSON lines with `type` fields such as `ready`, `state`, `info`, `warn`.
+4. The desktop UI watches the serial stream, parses every JSON object, reacts to `state` updates, and simply displays the raw JSON text in the log pane.
+5. When the UI needs to log something (e.g., “Connecting to …”), it sends `LOG <LEVEL> <LOGGER> <MESSAGE>`. The firmware re-emits that message through `firmware_logging`, so the entry appears for every listener.
 
 ---
 
@@ -143,4 +172,3 @@ Planned next steps:
 2. Update or add unit tests if making substantial changes.
 3. Keep modules focused: logging stays in `firmware_logging`, hardware access in managers, UI-specific tweaks in `tools/`.
 4. Submit PRs with clear descriptions and testing notes.
-

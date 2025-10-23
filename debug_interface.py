@@ -7,7 +7,7 @@ import json
 import time
 
 from input_manager import InputEvents
-from firmware_logging import get_logger, get_level_name, get_sink, set_sink
+from firmware_logging import get_logger
 
 try:
     import supervisor
@@ -34,7 +34,6 @@ class DebugInterface:
         self._last_state_signature = None
         self._valid_buttons = set(self._hid.button_names)
         self._serial_connected = False
-        self._previous_log_sink = None
 
         if not self._enabled:
             self._logger.info("Debug interface disabled by configuration.")
@@ -48,7 +47,6 @@ class DebugInterface:
         if self._broadcast_state:
             self._hid.set_state_callback(self.publish_state)
 
-        self._install_log_bridge()
         self._register_ble_listener()
         self._announce_ready()
 
@@ -119,6 +117,7 @@ class DebugInterface:
         if name not in self._valid_buttons:
             self._send_message("ERR", {"message": f"Unknown button: {name}"})
             return
+        self._logger.info("Host requested virtual press: %s", name)
         self._virtual_pressed.add(name)
         self._hid.process_inputs(InputEvents(pressed={name}, released=set()))
 
@@ -128,6 +127,7 @@ class DebugInterface:
         if name not in self._valid_buttons:
             self._send_message("ERR", {"message": f"Unknown button: {name}"})
             return
+        self._logger.info("Host requested virtual release: %s", name)
         if name in self._virtual_pressed:
             self._virtual_pressed.remove(name)
         self._hid.process_inputs(InputEvents(pressed=set(), released={name}))
@@ -174,29 +174,44 @@ class DebugInterface:
     @staticmethod
     def _send_message(label, payload):
         """Send a JSON-formatted debug message to the serial console."""
-        message = json.dumps(payload)
-        print(f"DBG {label} {message}")
+        data = dict(payload or {})
+        data.setdefault("type", label.lower())
+        data.setdefault("timestamp", time.monotonic())
+        serialized = json.dumps(data)
+        try:
+            print(serialized)
+        except OSError as exc:
+            if not DebugInterface._is_transport_flush_error(exc):
+                raise
+            DebugInterface._raw_write(serialized)
+        DebugInterface._try_flush()
 
-    def _install_log_bridge(self):
-        """Mirror firmware logging output onto the debug channel."""
-        self._previous_log_sink = get_sink()
+    @staticmethod
+    def _is_transport_flush_error(exc):
+        """Return True if the exception matches the USB CDC flush bug."""
+        return bool(exc.args) and exc.args[0] == 22
 
-        def _sink(level, logger_name, message):
-            payload = {
-                "logger": logger_name,
-                "message": message,
-                "level": get_level_name(level),
-                "timestamp": time.monotonic(),
-            }
-            self._send_message("LOG", payload)
+    @staticmethod
+    def _raw_write(serialized):
+        """Fallback write that bypasses print()-triggered flush behaviour."""
+        if sys is None:
+            return
+        try:
+            sys.stdout.write(serialized + "\n")
+        except OSError:
+            # Ignore downstream transport errors to keep firmware running.
+            pass
 
-            if self._previous_log_sink is not None and self._previous_log_sink is not _sink:
-                try:
-                    self._previous_log_sink(level, logger_name, message)
-                except Exception:
-                    pass
+    @staticmethod
+    def _try_flush():
+        """Best-effort flush that tolerates transports without flush support."""
+        if sys is None:
+            return
+        try:
+            sys.stdout.flush()
+        except (AttributeError, OSError):
+            pass
 
-        set_sink(_sink)
 
     def _register_ble_listener(self):
         """Forward BLE lifecycle events to the debug console."""

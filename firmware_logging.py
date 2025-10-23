@@ -1,9 +1,11 @@
 """
 Lightweight logging utilities for the Bluetooth HID arcade stick.
-Provides printf-style formatting across standard logging levels with an
-optional sink callback so host tooling can mirror firmware logs.
+Messages are emitted directly to the serial console as structured JSON
+records prefixed with ``LOG `` so any listener can consume them.
 """
 
+import json
+import sys
 import time
 
 DEBUG = 10
@@ -23,7 +25,6 @@ _LEVEL_NAMES = {
 _NAME_TO_LEVEL = {name: level for level, name in _LEVEL_NAMES.items()}
 
 _current_level = INFO
-_sink = None
 
 
 def set_level(level):
@@ -53,20 +54,6 @@ def get_level_by_name(name):
         return _NAME_TO_LEVEL[name.upper()]
     except KeyError as exc:
         raise ValueError(f"Unknown log level: {name}") from exc
-
-
-def set_sink(sink):
-    """
-    Register a callable invoked with (level, logger_name, message) for
-    every emitted log record. Passing None clears the sink.
-    """
-    global _sink
-    _sink = sink
-
-
-def get_sink():
-    """Return the currently registered sink (if any)."""
-    return _sink
 
 
 class Logger:
@@ -110,23 +97,44 @@ def _emit(level, name, message, args):
     if level < _current_level:
         return
 
-    level_name = get_level_name(level)
-    text = _format(message, args)
-    parts = [f"[{level_name}]"]
-    if name:
-        parts.append(name)
+    record = {
+        "level": get_level_name(level),
+        "logger": name,
+        "message": _format(message, args),
+    }
+
     if hasattr(time, "monotonic"):
-        parts.append("@{:.3f}s".format(time.monotonic()))
-    parts.append(text)
+        record["timestamp"] = time.monotonic()
 
-    print(" ".join(parts))
+    # Remove keys with falsy/None values except message.
+    payload = {k: v for k, v in record.items() if v is not None}
+    payload.setdefault("type", "log")
+    _write_payload(payload)
 
-    if _sink is not None:
+
+def _write_payload(payload):
+    """Emit the JSON payload while handling serial transport quirks."""
+    serialized = json.dumps(payload)
+    try:
+        print(serialized)
+    except OSError as exc:
+        # CircuitPython occasionally raises OSError 22 when flushing the USB CDC port.
+        if not exc.args or exc.args[0] != 22:
+            raise
+        # Fall back to a raw write; ignore further transport errors to keep firmware running.
         try:
-            _sink(level, name, text)
-        except Exception:
-            # Logging failures must never bubble into the firmware loop.
-            pass
+            sys.stdout.write(serialized + "\n")
+        except OSError:
+            return
+    _try_flush()
+
+
+def _try_flush():
+    """Best-effort flush for stdout; tolerate transports that do not support it."""
+    try:
+        sys.stdout.flush()
+    except (AttributeError, OSError):
+        pass
 
 
 def _format(message, args):

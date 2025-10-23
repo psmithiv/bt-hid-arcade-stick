@@ -4,7 +4,7 @@ This module centralizes hardware mappings and tunables so they can be
 adjusted without touching the runtime logic.
 """
 
-from firmware_logging import INFO
+from firmware_logging import DEBUG
 
 # Logical button order for the controller; handshake with HID descriptor.
 BUTTONS = [
@@ -25,10 +25,25 @@ BUTTONS = [
     "HOME",
 ]
 
-# Placeholder GPIO mapping; to be populated once wiring is finalized.
-# Values should be board pin objects, e.g. board.D5.
+# GPIO mapping placeholder. Update these entries with the actual board pins.
+# Example: "UP": "D5"  (strings are resolved via the board module)
 PIN_MAP = {
-    button: None for button in BUTTONS
+    "UP": "D5",
+    "DOWN": "D6",
+    "LEFT": "D9",
+    "RIGHT": "D10",
+    "A": "D11",
+    "B": "D12",
+    "X": "D13",  # On-board LED pin; suitable for quick testing
+    "Y": "D0",
+    "L1": "D1",
+    "R1": "D4",
+    "L2": "A0",
+    "R2": "A1",
+    "START": "A2",
+    "SELECT": "A3",
+    "HOME": "A4",
+    "PAIRING": "A5",
 }
 
 # Dedicated pairing button pin (set to a board pin when wired).
@@ -69,7 +84,7 @@ BLE_SETTINGS = {
     "pairing_button_pin": PAIRING_BUTTON_PIN,
 }
 
-LOG_LEVEL = INFO
+LOG_LEVEL = DEBUG
 
 CONTROLLER_CONFIG = {
     "buttons": BUTTONS,
