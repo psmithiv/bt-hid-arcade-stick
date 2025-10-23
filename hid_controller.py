@@ -1,7 +1,10 @@
 """
-HID report orchestration for the Bluetooth HID arcade stick.
-Coordinates input events with BLE/USB backends and maintains the most
-recent controller state to avoid redundant traffic.
+.. module:: hid_controller
+   :synopsis: Translate logical button activity into HID reports.
+
+Coordinates input events with the BLE and USB backends and maintains the
+current controller state so redundant traffic is avoided. Button ordering
+must match the HID report descriptor; see :mod:`config` for the wiring map.
 """
 
 from input_manager import InputEvents
@@ -17,6 +20,13 @@ class HIDController:
     """Manage HID state and dispatch reports over BLE and USB."""
 
     def __init__(self, ble_manager, usb_manager, config):
+        """
+        Create the HID controller.
+
+        :param ble_manager: Instance of :class:`ble_manager.BLEManager`.
+        :param usb_manager: Instance of :class:`usb_hid_manager.USBHIDManager`.
+        :param dict config: Controller configuration including ``buttons`` and ``hid`` blocks.
+        """
         self._logger = get_logger("hid_controller")
         self._ble_manager = ble_manager
         self._usb_manager = usb_manager
@@ -35,20 +45,39 @@ class HIDController:
 
     @property
     def button_names(self):
-        """Return the ordered list of logical button names."""
+        """
+        Return the ordered list of logical button names.
+
+        :returns: List of button identifiers matching the HID descriptor order.
+        :rtype: list[str]
+        """
         return list(self._buttons)
 
     @property
     def active_buttons(self):
-        """Return a snapshot of currently active buttons."""
+        """
+        Return a snapshot of currently active buttons.
+
+        :returns: Set of logical button names that are currently pressed.
+        :rtype: set[str]
+        """
         return set(self._active_buttons)
 
     def set_state_callback(self, callback):
-        """Register a callback invoked when button state changes."""
+        """
+        Register a callback invoked when button state changes.
+
+        :param callable callback: Function accepting a sorted list of active buttons.
+        """
         self._state_callback = callback
 
     def inject_virtual_event(self, pressed=None, released=None):
-        """Simulate button events for debugging/testing."""
+        """
+        Simulate button events for debugging/testing.
+
+        :param Iterable[str] pressed: Logical buttons to mark as pressed.
+        :param Iterable[str] released: Logical buttons to mark as released.
+        """
         pressed = {name for name in (pressed or []) if name in self._button_map}
         released = {name for name in (released or []) if name in self._button_map}
         if not pressed and not released:
@@ -99,6 +128,8 @@ class HIDController:
     def process_inputs(self, input_events):
         """
         Update internal button state and emit HID reports as needed.
+
+        :param InputEvents input_events: Debounced button transitions from :mod:`input_manager`.
         """
         pending_update = False
 

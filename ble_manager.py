@@ -29,6 +29,12 @@ class BLEManager:
     """Manage BLE HID lifecycle, pairing, and connection state."""
 
     def __init__(self, config):
+        """
+        Build the BLE manager around the provided configuration.
+
+        :param dict config: BLE configuration block from :mod:`config`, including
+            the advertised name, pairing timeouts, and optional pairing button pin.
+        """
         self._logger = get_logger("ble_manager")
         self._config = config or {}
         self._device_name = self._config.get("device_name", "ArcadeStick")
@@ -72,7 +78,12 @@ class BLEManager:
     # Event listener support
 
     def add_event_listener(self, listener):
-        """Register a callable notified when BLE state changes."""
+        """
+        Register a callable notified when BLE state changes.
+
+        :param callable listener: Function accepting a single dictionary payload
+            describing the BLE event.
+        """
         if listener in self._event_listeners:
             return
         self._event_listeners.append(listener)
@@ -82,7 +93,11 @@ class BLEManager:
             pass
 
     def remove_event_listener(self, listener):
-        """Remove a previously registered event listener."""
+        """
+        Remove a previously registered event listener.
+
+        :param callable listener: Listener previously passed to :meth:`add_event_listener`.
+        """
         if listener in self._event_listeners:
             self._event_listeners.remove(listener)
 
@@ -174,18 +189,29 @@ class BLEManager:
 
     @property
     def hid_service(self):
-        """Expose the HID service for consumption by other modules."""
+        """
+        Expose the HID service for consumption by other modules.
+
+        :returns: :class:`adafruit_ble.services.standard.hid.HIDService` instance or ``None``.
+        """
         return self._hid_service
 
     @property
     def connected(self):
-        """Return True when a BLE connection is active."""
+        """
+        Return the current BLE connection status.
+
+        :returns: ``True`` if at least one Central is connected.
+        :rtype: bool
+        """
         return self._connected
 
     def poll(self):
         """
         Service BLE events such as advertising, connection, or pairing.
         This should be called frequently from the main loop.
+
+        :returns: ``None``
         """
         if self._ble is None:
             return
@@ -308,6 +334,8 @@ class BLEManager:
     def enter_pairing_mode(self):
         """
         Clear existing bonds (if any) and start pairing mode advertising.
+
+        :returns: ``None``
         """
         if self._ble is None:
             self._logger.warning("BLE stack is unavailable; pairing mode request ignored.")

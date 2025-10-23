@@ -1,6 +1,9 @@
 """
-Entry point for the Bluetooth HID arcade stick firmware.
-Initializes subsystems and enters the main service loop.
+.. module:: code
+   :synopsis: Firmware entry point for the Bluetooth HID arcade stick.
+
+Initializes every subsystem (BLE, USB, input polling, debugging) and
+drives the cooperative main loop that runs on the CircuitPython board.
 """
 
 import time
@@ -17,7 +20,11 @@ from firmware_logging import get_logger, set_level
 logger = get_logger("code")
 
 def main():
-    """Firmware entry point."""
+    """
+    Initialize the firmware subsystems and enter the main service loop.
+
+    :returns: This function never returns; the loop runs indefinitely on-device.
+    """
     set_level(CONTROLLER_CONFIG.get("log_level"))
     logger.info("Starting Bluetooth HID arcade stick firmware initialization sequence.")
 

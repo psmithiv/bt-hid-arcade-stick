@@ -1,7 +1,15 @@
 """
-Configuration constants for the Bluetooth HID arcade stick firmware.
+.. module:: config
+   :synopsis: Central configuration for the Bluetooth HID arcade stick firmware.
+
 This module centralizes hardware mappings and tunables so they can be
 adjusted without touching the runtime logic.
+
+.. note::
+   All buttons are assumed to be wired **active-low** with pull-up resistors.
+   Update :data:`PIN_MAP` with the exact GPIO connections used on the target
+   PCB so the firmware reports the correct button state in hardware and when
+   mirrored through the debug interface.
 """
 
 from firmware_logging import DEBUG

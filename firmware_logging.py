@@ -1,7 +1,10 @@
 """
-Lightweight logging utilities for the Bluetooth HID arcade stick.
-Messages are emitted directly to the serial console as structured JSON
-records prefixed with ``LOG `` so any listener can consume them.
+.. module:: firmware_logging
+   :synopsis: Structured logging helpers for the Bluetooth HID arcade stick.
+
+Lightweight logging utilities shared by firmware modules and host tooling.
+Messages are emitted to the USB serial console as JSON records so the
+companion desktop UI and any other listener can observe the firmware’s state.
 """
 
 import json
@@ -30,24 +33,44 @@ _current_level = INFO
 def set_level(level):
     """
     Configure the global logging level.
-    Accepts either a numeric level or a case-insensitive textual level.
+
+    :param level: Numeric constant or case-insensitive textual level name.
+    :type level: int | str
     """
     global _current_level
     _current_level = _coerce_level(level)
 
 
 def get_level():
-    """Return the currently active logging level."""
+    """
+    Return the currently active logging level.
+
+    :returns: Numeric logging level constant.
+    :rtype: int
+    """
     return _current_level
 
 
 def get_level_name(level):
-    """Translate a numeric level to a printable name."""
+    """
+    Translate a numeric level to a printable name.
+
+    :param int level: Logging severity constant.
+    :returns: Uppercase textual representation (e.g. ``"INFO"``).
+    :rtype: str
+    """
     return _LEVEL_NAMES.get(level, str(level))
 
 
 def get_level_by_name(name):
-    """Translate a textual level name to its numeric representation."""
+    """
+    Translate a textual level name to its numeric representation.
+
+    :param str name: Case-insensitive textual level name.
+    :returns: Numeric logging level constant.
+    :rtype: int
+    :raises ValueError: If the level name is unknown.
+    """
     if name is None:
         raise ValueError("Level name must not be None")
     try:
@@ -60,6 +83,11 @@ class Logger:
     """Minimal logger that tags messages with a name."""
 
     def __init__(self, name):
+        """
+        Create a logger with the supplied name.
+
+        :param str name: Identifier included in every JSON log record.
+        """
         self._name = name
         self._log = _emit
 
@@ -83,13 +111,24 @@ class Logger:
     fatal = critical  # Compatibility alias.
 
     def log(self, level, message, *args):
-        """Emit a message at an arbitrary level."""
+        """
+        Emit a message at an arbitrary level.
+
+        :param level: Numeric or textual log level.
+        :param str message: Format string or message payload.
+        :param args: Optional ``printf``-style arguments.
+        """
         numeric_level = _coerce_level(level)
         self._log(numeric_level, self._name, message, args)
 
 
 def get_logger(name):
-    """Obtain a logger scoped by name."""
+    """
+    Obtain a logger scoped by name.
+
+    :param str name: Identifier for the logger.
+    :returns: Instance of :class:`Logger`.
+    """
     return Logger(name)
 
 

@@ -1,7 +1,10 @@
 """
-Input management layer for the Bluetooth HID arcade stick.
+.. module:: input_manager
+   :synopsis: GPIO polling and debouncing for the arcade stick buttons.
+
 Responsible for initializing GPIO inputs and exposing debounced button
-state changes to upstream consumers.
+state changes to upstream consumers. Buttons are assumed to be wired
+active-low with pull-up resistors; see :mod:`config` for the mapping.
 """
 
 import time
@@ -26,6 +29,7 @@ class InputManager:
     """Poll GPIO-backed buttons and emit debounced transitions."""
 
     def __init__(self, config):
+        """Configure GPIO-backed buttons from the provided controller config."""
         self._config = config or {}
         self._logger = get_logger("input_manager")
 
@@ -55,6 +59,9 @@ class InputManager:
     def poll(self):
         """
         Poll hardware inputs and return debounced button transitions.
+
+        :returns: Named tuple with ``pressed`` and ``released`` sets.
+        :rtype: InputEvents
         """
         if not self._pin_objects:
             return InputEvents(pressed=set(), released=set())
@@ -100,6 +107,7 @@ class InputManager:
     # Internal helpers
 
     def _initialize_pins(self, pin_map):
+        """Instantiate DigitalInOut objects for each configured button."""
         for button in self._buttons:
             raw_pin = pin_map.get(button)
             if raw_pin is None:

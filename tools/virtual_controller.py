@@ -107,6 +107,7 @@ class _SerialWorker(QObject):
 
     @Slot(str)
     def send(self, text: str):
+        """Accept text from the UI thread and queue it for transmission."""
         payload = text if text.endswith("\n") else f"{text}\n"
         self._outgoing.put(payload.encode("utf-8"))
 
@@ -115,6 +116,7 @@ class _SerialWorker(QObject):
         self._stop_requested = True
 
     def _poll_serial(self):
+        """Process queued writes then consume any available incoming lines."""
         if self._stop_requested:
             self._shutdown()
             return
@@ -125,6 +127,7 @@ class _SerialWorker(QObject):
         self._read_incoming()
 
     def _flush_outgoing(self):
+        """Drain the outgoing queue, writing each payload to the serial port."""
         if self._serial is None:
             return
         while True:
@@ -141,6 +144,7 @@ class _SerialWorker(QObject):
                 break
 
     def _read_incoming(self):
+        """Read encoded lines from the serial port and emit them via Qt signals."""
         if self._serial is None:
             return
         try:
@@ -156,6 +160,7 @@ class _SerialWorker(QObject):
             self._stop_requested = True
 
     def _shutdown(self):
+        """Release resources and notify listeners that the worker finished."""
         if self._timer is not None:
             self._timer.stop()
             self._timer.timeout.disconnect()
@@ -198,6 +203,7 @@ class SerialBridge(QObject):
             self._thread.start()
 
     def stop(self):
+        """Stop the worker thread and tear down the serial bridge."""
         if self._thread is None or self._worker is None:
             return
         if self._thread.isRunning():
@@ -210,6 +216,7 @@ class SerialBridge(QObject):
         self._thread = None
 
     def send(self, text: str):
+        """Enqueue a line of text to be transmitted over serial."""
         if self._worker is None:
             return
         QMetaObject.invokeMethod(
@@ -367,9 +374,11 @@ class DebuggerWindow(QMainWindow):
         super().closeEvent(event)
 
     def _handle_app_quit(self):
+        """Ensure background resources stop when the application exits."""
         self._cleanup()
 
     def _cleanup(self):
+        """Stop the serial bridge if it is currently active."""
         if self._serial_bridge is not None:
             try:
                 self._serial_bridge.stop()
@@ -380,6 +389,7 @@ class DebuggerWindow(QMainWindow):
     # UI construction helpers
 
     def _build_dpad_group(self):
+        """Construct the D-pad button cluster."""
         group = QGroupBox("D-Pad")
         grid = QGridLayout()
         group.setLayout(grid)
@@ -392,6 +402,7 @@ class DebuggerWindow(QMainWindow):
         return group
 
     def _build_face_group(self):
+        """Construct the face button cluster."""
         group = QGroupBox("Face Buttons")
         grid = QGridLayout()
         group.setLayout(grid)
@@ -412,6 +423,7 @@ class DebuggerWindow(QMainWindow):
         return group
 
     def _build_system_group(self):
+        """Construct the system button row (HOME/START/etc.)."""
         group = QGroupBox("System")
         row = QHBoxLayout()
         group.setLayout(row)
@@ -422,6 +434,7 @@ class DebuggerWindow(QMainWindow):
         return group
 
     def _make_button(self, name: str) -> QPushButton:
+        """Create a QPushButton wired to send virtual press/release commands."""
         button = QPushButton(name)
         button.setEnabled(False)
         button.pressed.connect(lambda n=name: self._handle_button_press(n))
@@ -433,6 +446,7 @@ class DebuggerWindow(QMainWindow):
     # Serial management
 
     def _open_serial(self, port: str, baudrate: int):
+        """Instantiate the serial bridge and connect signal handlers."""
         self._serial_bridge = SerialBridge(port, baudrate)
         self._serial_bridge.line_received.connect(self._handle_serial_line)
         self._serial_bridge.connection_changed.connect(self._handle_connection_change)
@@ -440,6 +454,7 @@ class DebuggerWindow(QMainWindow):
         self._serial_bridge.start()
 
     def _auto_detect_port(self) -> Optional[str]:
+        """Return the first serial port that looks like a CircuitPython device."""
         if list_ports is None:
             return None
         for candidate in list_ports.comports():
@@ -450,6 +465,7 @@ class DebuggerWindow(QMainWindow):
         return None
 
     def _handle_connection_change(self, connected: bool):
+        """Update UI state and logs when the serial link connects or drops."""
         self._serial_connected = connected
         if connected:
             self._status_label.setText("Status: Connected")
@@ -463,9 +479,11 @@ class DebuggerWindow(QMainWindow):
             self._update_button_states(set())
 
     def _handle_serial_error(self, message: str):
+        """Surface serial errors to the log view."""
         self._log_error(f"Serial error: {message}")
 
     def _handle_serial_line(self, line: str):
+        """Decode a single line received from the firmware."""
         if not line:
             return
 
@@ -490,10 +508,12 @@ class DebuggerWindow(QMainWindow):
     # Message handlers
 
     def _handle_state_message(self, payload: Dict[str, object]):
+        """Synchronize button widgets with the state reported by firmware."""
         buttons = set(payload.get("buttons", []))
         self._update_button_states(buttons)
 
     def _handle_ready_message(self, payload: Dict[str, object]):
+        """Refresh the valid button list once the firmware advertises it."""
         buttons = payload.get("buttons")
         if isinstance(buttons, Iterable):
             normalized = {str(name).upper() for name in buttons}
@@ -505,6 +525,11 @@ class DebuggerWindow(QMainWindow):
     # UI helpers
 
     def _log_with_level(self, level: str, message: str):
+        """
+        Forward a UI-originated log message to firmware when possible.
+        Falls back to recording the entry locally and only mirrors it to stdout
+        when the `--print-logs` flag enabled `_print_logs`.
+        """
         base_level = str(level).upper()
         detected = self._infer_level(message)
         level_name = detected if detected is not None else base_level
@@ -540,6 +565,7 @@ class DebuggerWindow(QMainWindow):
         self._log_with_level("DEBUG", message)
 
     def _record_log(self, level_name: str, raw_line: str):
+        """Persist a log entry in the UI, optionally echoing to stdout if requested."""
         level_name = str(level_name).upper()
         entry = (level_name, raw_line)
         self._log_history.append(entry)
@@ -553,6 +579,7 @@ class DebuggerWindow(QMainWindow):
         self._update_search_controls()
 
     def _send_log_command(self, level_name: str, message: str) -> bool:
+        """Best-effort attempt to relay host logs through the firmware."""
         if self._serial_bridge is None:
             return False
         sanitized = message.replace("\r", " ").replace("\n", "\\n")
@@ -575,10 +602,12 @@ class DebuggerWindow(QMainWindow):
         return None
 
     def _handle_log_filter_change(self, text: str):
+        """Adjust the visible log level threshold."""
         self._log_filter_level = text.upper()
         self._refresh_log_view()
 
     def _handle_clear_logs(self):
+        """Remove all log entries from history and the view."""
         self._log_history.clear()
         self._log_view.clear()
         self._search_cursor = None
@@ -586,6 +615,7 @@ class DebuggerWindow(QMainWindow):
         self._update_search_controls()
 
     def _handle_save_logs(self):
+        """Persist the current log history to disk via a file dialog."""
         if not self._log_history:
             return
         filename, _ = QFileDialog.getSaveFileName(
@@ -605,6 +635,7 @@ class DebuggerWindow(QMainWindow):
             self._record_log("ERROR", f"Failed to save log: {exc}")
 
     def _refresh_log_view(self):
+        """Rebuild the visible log pane based on the active filter."""
         self._log_view.clear()
         for level_name, display in self._log_history:
             if self._should_display(level_name):
@@ -614,6 +645,7 @@ class DebuggerWindow(QMainWindow):
         self._update_search_controls()
 
     def _should_display(self, level_name: str) -> bool:
+        """Return True when a log of the given level passes the active filter."""
         if self._log_filter_level == "ALL":
             return True
         level_value = _LEVEL_PRIORITY.get(level_name, INFO)
@@ -621,6 +653,7 @@ class DebuggerWindow(QMainWindow):
         return level_value >= threshold
 
     def _handle_search_text_change(self, text: str):
+        """Update the search query and move the caret when necessary."""
         self._search_term = text
         self._search_cursor = None
         self._update_search_controls()
@@ -632,12 +665,15 @@ class DebuggerWindow(QMainWindow):
             self._log_view.setTextCursor(cursor)
 
     def _search_next(self):
+        """Advance to the next search match."""
         self._find_match(forward=True)
 
     def _search_previous(self):
+        """Move to the previous search match."""
         self._find_match(forward=False)
 
     def _find_match(self, forward: bool, restart: bool = False):
+        """Advance the search cursor in the requested direction, wrapping if needed."""
         if not self._search_term:
             return
 
@@ -670,6 +706,7 @@ class DebuggerWindow(QMainWindow):
         self._log_view.ensureCursorVisible()
 
     def _restart_search(self):
+        """Reset any existing search highlight and start over."""
         if not self._search_term:
             self._search_cursor = None
             return
@@ -677,6 +714,7 @@ class DebuggerWindow(QMainWindow):
         self._find_match(forward=True, restart=True)
 
     def _update_search_controls(self):
+        """Enable/disable search navigation buttons based on the current query."""
         active = bool(self._search_term)
         self._search_prev_button.setEnabled(active)
         self._search_next_button.setEnabled(active)
@@ -692,10 +730,12 @@ class DebuggerWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _set_controls_enabled(self, enabled: bool):
+        """Enable or disable all controller buttons in the UI."""
         for button in self._button_widgets.values():
             button.setEnabled(enabled)
 
     def _update_button_states(self, active: Iterable[str]):
+        """Update button pressed visuals based on the provided active set."""
         active_set = {name.upper() for name in active}
         for name, button in self._button_widgets.items():
             button.setDown(name in active_set)
@@ -704,6 +744,7 @@ class DebuggerWindow(QMainWindow):
     # Button event handlers
 
     def _handle_button_press(self, name: str):
+        """Send a virtual button press if the device recognizes the button."""
         if not self._serial_connected:
             self._log_debug(f"Ignoring PRESS {name}; serial not connected.")
             return
@@ -713,6 +754,7 @@ class DebuggerWindow(QMainWindow):
         self._send_command(f"PRESS {name}")
 
     def _handle_button_release(self, name: str):
+        """Send a virtual button release if the device recognizes the button."""
         if not self._serial_connected:
             self._log_debug(f"Ignoring RELEASE {name}; serial not connected.")
             return
@@ -722,6 +764,7 @@ class DebuggerWindow(QMainWindow):
         self._send_command(f"RELEASE {name}")
 
     def _send_command(self, command: str, *, echo: bool = True):
+        """Transmit a raw command string to the firmware via the serial bridge."""
         if self._serial_bridge is None:
             self._log_warning(f"Cannot send '{command}'; serial bridge unavailable.")
             return

@@ -1,6 +1,11 @@
 """
-Serial debug interface enabling virtual button injection and state
-inspection from a host development workstation.
+.. module:: debug_interface
+   :synopsis: Serial debug protocol for the Bluetooth HID arcade stick.
+
+The debug interface bridges host tooling (such as the virtual controller UI)
+with the running firmware. Host commands are received over the USB serial
+console, translated into virtual button events, pairing requests, or log
+forwards, and the firmware state is mirrored back as structured JSON.
 """
 
 import json
@@ -24,6 +29,15 @@ class DebugInterface:
     """Facilitates host-driven debugging over the USB serial console."""
 
     def __init__(self, hid_controller, ble_manager=None, config=None):
+        """
+        Create the debug interface that mirrors firmware state over serial.
+
+        :param hid_controller: Instance of :class:`hid_controller.HIDController`
+            used to inject virtual button events and access button metadata.
+        :param ble_manager: Optional :class:`ble_manager.BLEManager` for pairing control.
+        :param dict config: Debug configuration dictionary containing ``enabled``
+            and ``state_broadcast`` flags.
+        """
         self._logger = get_logger("debug_interface")
         self._hid = hid_controller
         self._ble_manager = ble_manager

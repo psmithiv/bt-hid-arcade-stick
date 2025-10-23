@@ -10,6 +10,25 @@ The codebase is organized so each concern (hardware drivers, communication stack
 
 ---
 
+## Documentation
+
+Project documentation is now generated with [Sphinx](https://www.sphinx-doc.org/).
+Use the provided configuration under `docs/` to build HTML pages that include an
+overview, hardware wiring guide, and API reference pulled directly from the
+source docstrings.
+
+```bash
+pip install sphinx
+sphinx-build -b html docs build/html
+open build/html/index.html  # macOS; adjust for your platform
+```
+
+The Sphinx site supersedes the long-form content that previously lived in this
+README. The sections below keep a brief summary for quick discovery; see the
+generated docs for the complete write-up.
+
+---
+
 ## Top-Level Data Flow
 
 ```
@@ -98,7 +117,7 @@ Current mapping (Adafruit Feather M4 Express):
 1. Firmware modules use `firmware_logging.get_logger(name)` to emit messages.
 2. `firmware_logging` prints each record to the serial console as a JSON line: `{"type": "log", "level": "...", "logger": "...", "message": "...", "timestamp": ...}`. Any connected host can parse these lines directly.
 3. `debug_interface.DebugInterface` emits other structured events (state snapshots, readiness, BLE notifications, etc.) as JSON lines with `type` fields such as `ready`, `state`, `info`, `warn`.
-4. The desktop UI watches the serial stream, parses every JSON object, reacts to `state` updates, and simply displays the raw JSON text in the log pane.
+4. The desktop UI watches the serial stream, parses every JSON object, reacts to `state` updates, and mirrors the raw JSON text in the log pane. By default the UI keeps these logs inside the window; launching with `--print-logs` also echoes each line to stdout.
 5. When the UI needs to log something (e.g., “Connecting to …”), it sends `LOG <LEVEL> <LOGGER> <MESSAGE>`. The firmware re-emits that message through `firmware_logging`, so the entry appears for every listener.
 
 ---
@@ -111,7 +130,7 @@ Commands accepted by `debug_interface.DebugInterface`:
 | ------- | ----------- |
 | `PRESS <BUTTON>` | Simulate a button press (button name is case-insensitive, must match configured list). |
 | `RELEASE <BUTTON>` | Simulate a button release. |
-| `STATE?` | Request current active buttons; firmware responds with a `DBG STATE` JSON snapshot. |
+| `STATE?` | Request current active buttons; firmware responds with a `state` JSON snapshot. |
 | `PAIR` | Force BLE pairing mode (clears bonds, restarts advertising). |
 | `LOG <LEVEL> <LOGGER> <MESSAGE>` | Emit a log line (e.g., from the desktop UI). |
 | `HELP` | Print command list and configured buttons. |
@@ -134,7 +153,7 @@ Key components inside `tools/virtual_controller.py`:
 | `SerialBridge` | Background thread + worker managing the serial connection so Qt stays responsive. |
 | `DebuggerWindow` | Main window: builds the controller layout, log viewer, toolbar (filter/search/save/clear), and issues serial commands. |
 | Filtering/Search | Logs are cached with their levels so the view can rebuild instantly when the filter changes. Search supports wrap-around navigation. |
-| Logging | `_log_with_level` routes UI messages to firmware via `LOG` command; `DBG LOG` echoes are deduplicated against pending entries to avoid duplicates. |
+| Logging | `_log_with_level` routes UI messages to firmware via `LOG` commands; the firmware’s echoed entries populate the UI (and stdout when `--print-logs` is supplied). |
 
 ---
 
@@ -150,10 +169,9 @@ Completed / working:
 
 Planned next steps:
 
-1. Integrate actual GPIO polling in `InputManager` so physical buttons feed into `HIDController`.
-2. Reflect physical button activity in the desktop UI (leveraging existing `STATE` events).
-3. Finish BLE lifecycle handling, including connection state mirrored in the UI.
-4. Expand automated tests for host tooling and, where possible, firmware logic.
+1. Finalize the hardware pin map and validate debouncing with the production wiring.
+2. Flesh out BLE lifecycle handling, including connection state mirrored in the UI.
+3. Expand automated tests for host tooling and, where possible, firmware logic.
 
 ---
 
