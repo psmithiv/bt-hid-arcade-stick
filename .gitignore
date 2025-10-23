@@ -30,3 +30,5 @@ sd/CIRCUITPY*
 # Platform-specific cruft
 .DS_Store
 Thumbs.db
+
+.cache

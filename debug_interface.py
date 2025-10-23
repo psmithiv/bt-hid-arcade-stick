@@ -45,6 +45,11 @@ class DebugInterface:
         self._virtual_pressed = set()
         self._last_state_signature = None
         self._valid_buttons = set(self._hid.button_names)
+        self._virtual_only_buttons = set()
+        extra_virtual = {str(name).upper() for name in self._config.get("virtual_buttons", [])}
+        if extra_virtual:
+            self._virtual_only_buttons = extra_virtual - self._valid_buttons
+            self._valid_buttons.update(extra_virtual)
         self._serial_connected = False
 
         if not self._enabled:
@@ -109,9 +114,9 @@ class DebugInterface:
         args = parts[1:]
 
         if command == "PRESS" and args:
-            self._virtual_press(args[0])
+            self._handle_press(args[0])
         elif command == "RELEASE" and args:
-            self._virtual_release(args[0])
+            self._handle_release(args[0])
         elif command == "STATE?":
             self.publish_state(sorted(self._hid.active_buttons))
         elif command == "PAIR":
@@ -123,11 +128,22 @@ class DebugInterface:
         else:
             self._send_message("ERR", {"command": line})
 
+    def _handle_press(self, name):
+        """Dispatch a press event to the appropriate handler."""
+        self._virtual_press(name)
+
+    def _handle_release(self, name):
+        """Dispatch a release event to the appropriate handler."""
+        self._virtual_release(name)
+
     def _virtual_press(self, button_name):
         """Simulate a button press."""
         name = button_name.upper()
         if name not in self._valid_buttons:
             self._send_message("ERR", {"message": f"Unknown button: {name}"})
+            return
+        if name in self._virtual_only_buttons:
+            self._handle_virtual_only_press(name)
             return
         self._logger.info("Host requested virtual press: %s", name)
         self._virtual_pressed.add(name)
@@ -139,11 +155,26 @@ class DebugInterface:
         if name not in self._valid_buttons:
             self._send_message("ERR", {"message": f"Unknown button: {name}"})
             return
+        if name in self._virtual_only_buttons:
+            self._handle_virtual_only_release(name)
+            return
         self._logger.info("Host requested virtual release: %s", name)
         if name in self._virtual_pressed:
             self._virtual_pressed.remove(name)
         self._hid.process_inputs(InputEvents(pressed=set(), released={name}))
 
+    def _handle_virtual_only_press(self, name):
+        """Handle presses for virtual-only buttons that map to host commands."""
+        if name == "PAIRING":
+            self._logger.info("Host requested virtual pairing trigger.")
+            self._trigger_pairing()
+        else:
+            self._send_message("WARN", {"message": f"No action bound to virtual button: {name}"})
+
+    def _handle_virtual_only_release(self, name):
+        """Handle releases for virtual-only buttons (currently no-op)."""
+        if name == "PAIRING":
+            self._logger.debug("Virtual pairing button released (ignored).")
     def _trigger_pairing(self):
         """Invoke BLE pairing mode from the host."""
         if self._ble_manager is None:

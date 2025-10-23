@@ -48,7 +48,8 @@ PIN_MAP = {
     "START": "A2",
     "SELECT": "A3",
     "HOME": "A4",
-    "PAIRING": "A5",
+    # Pairing button is virtual-only by default; mapped to None while wiring is pending.
+    "PAIRING": None,
 }
 
 # Dedicated pairing button pin (set to a board pin when wired).
@@ -79,6 +80,7 @@ HID_SETTINGS = {
 DEBUG_SETTINGS = {
     "enabled": True,
     "state_broadcast": True,
+    "virtual_buttons": ["PAIRING"],
 }
 
 # BLE configuration options.
