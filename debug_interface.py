@@ -145,7 +145,7 @@ class DebugInterface:
         if name in self._virtual_only_buttons:
             self._handle_virtual_only_press(name)
             return
-        self._logger.info("Host requested virtual press: %s", name)
+        self._logger.debug("Host requested virtual press: %s", name)
         self._virtual_pressed.add(name)
         self._hid.process_inputs(InputEvents(pressed={name}, released=set()))
 
@@ -158,7 +158,7 @@ class DebugInterface:
         if name in self._virtual_only_buttons:
             self._handle_virtual_only_release(name)
             return
-        self._logger.info("Host requested virtual release: %s", name)
+        self._logger.debug("Host requested virtual release: %s", name)
         if name in self._virtual_pressed:
             self._virtual_pressed.remove(name)
         self._hid.process_inputs(InputEvents(pressed=set(), released={name}))
@@ -166,22 +166,35 @@ class DebugInterface:
     def _handle_virtual_only_press(self, name):
         """Handle presses for virtual-only buttons that map to host commands."""
         if name == "PAIRING":
-            self._logger.info("Host requested virtual pairing trigger.")
+            self._logger.debug("Host requested virtual pairing trigger.")
             self._trigger_pairing()
         else:
-            self._send_message("WARN", {"message": f"No action bound to virtual button: {name}"})
+            self._send_log("WARN", "debug_interface", f"No action bound to virtual button: {name}")
 
     def _handle_virtual_only_release(self, name):
         """Handle releases for virtual-only buttons (currently no-op)."""
         if name == "PAIRING":
             self._logger.debug("Virtual pairing button released (ignored).")
+
+    def _send_log(self, level, logger_name, message):
+        """Emit a log payload via the debug transport."""
+        level_str = str(level).upper()
+        record = {
+            "type": "log",
+            "level": level_str,
+            "logger": logger_name,
+            "message": message,
+            "timestamp": time.monotonic(),
+        }
+        self._send_message(level_str, record)
+
     def _trigger_pairing(self):
         """Invoke BLE pairing mode from the host."""
         if self._ble_manager is None:
-            self._send_message("WARN", {"message": "BLE manager unavailable"})
+            self._send_log("WARN", "debug_interface", "BLE manager unavailable")
             return
         self._ble_manager.enter_pairing_mode()
-        self._send_message("INFO", {"message": "Pairing mode requested"})
+        self._send_log("DEBUG", "debug_interface", "Pairing mode requested")
 
     def _handle_host_log(self, args):
         """Log a message forwarded by the host UI."""
@@ -212,7 +225,8 @@ class DebugInterface:
 
     def _announce_ready(self):
         """Notify host tools that the interface is active."""
-        self._send_message("READY", {"buttons": self._hid.button_names})
+        buttons = sorted(self._valid_buttons)
+        self._send_message("READY", {"buttons": buttons})
 
     @staticmethod
     def _send_message(label, payload):

@@ -53,7 +53,18 @@ The desktop UI (``tools/virtual_controller.py``) provides:
 
 * Serial bridge in a background thread that keeps Qt responsive.
 * Controller layout with clickable buttons that send virtual ``PRESS`` and ``RELEASE`` commands.
-* Log viewer with filter/search/save controls. Start the UI with ``--print-logs`` to mirror JSON lines to stdout.
+* Log viewer with category filters (`LOG` vs. aggregated `EVENTS`), log-level filtering for `LOG`, search, and save/clear controls. Log entries render with colored timestamp/level/logger columns for quick scanning. Start the UI with ``--print-logs`` to mirror formatted lines to stdout.
 * BLE status reporting based on events forwarded by :class:`ble_manager.BLEManager`.
 
 See :doc:`reference` for module-level API documentation generated directly from the source.
+
+Serial Message Categories
+-------------------------
+
+Firmware-to-host messages are JSON objects with a ``type`` field:
+
+* ``log`` – Structured log entries (includes ``level``, ``logger``, ``message``, ``timestamp``).
+* ``state`` – Current button snapshot used by the UI to light up virtual controls.
+* ``info`` / ``warn`` / ``err`` – Status events such as BLE lifecycle updates or pairing outcomes. These may include a ``source`` (e.g., ``"BLE"``).
+
+Use the desktop UI’s log pane (or `--print-logs`) to observe all categories while testing.

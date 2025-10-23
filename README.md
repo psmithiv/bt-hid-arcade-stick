@@ -82,7 +82,13 @@ HTML) for comprehensive documentation. Key pieces:
 
 - Logs are JSON objects emitted via `firmware_logging` (consumed by the virtual controller and any serial listener).
 - The debug interface surfaces state snapshots, BLE events, and replies to commands such as `STATE?`, `PRESS`, `LOG`.
+- Message categories:
+  - `type: "log"` – structured log entries with `level`, `logger`, `message`, `timestamp`.
+  - `type: "state"` – current button snapshot used to drive the UI state.
+  - `type: "info" / "warn" / "err"` – status events (e.g., BLE lifecycle, pairing results); may include a `source`.
 - Run the desktop UI with `--print-logs` to mirror firmware output to stdout while keeping the in-app log pane.
+- The desktop log pane filters between `LOG` entries and aggregate `EVENTS` (state/info/warn/err); log-level controls remain visible when viewing `ALL` or `LOG`.
+- Log entries are rendered with timestamp/level/logger columns and color-coded severities for quick scanning; export/console output uses the same formatted text.
 
 ---
 

@@ -11,6 +11,7 @@ import argparse
 import json
 import sys
 import time
+import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence
@@ -36,7 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from PySide6.QtGui import QColor, QTextCursor, QTextDocument
+from PySide6.QtGui import QColor, QTextCursor, QTextDocument, QTextCharFormat, QFontDatabase
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -242,6 +243,17 @@ class SerialBridge(QObject):
 class DebuggerWindow(QMainWindow):
     """Interactive debugger window hooked up to the firmware serial protocol."""
 
+    _LEVEL_COLORS = {
+        "DEBUG": QColor("#6c8cff"),
+        "INFO": QColor("#0aa15f"),
+        "WARNING": QColor("#d9a406"),
+        "ERROR": QColor("#d65b5b"),
+        "CRITICAL": QColor("#b01e1e"),
+    }
+    _TIMESTAMP_COLOR = QColor("#7a7a7a")
+    _LOGGER_COLOR = QColor("#2495b7")
+    _EVENT_COLOR = QColor("#c47f16")
+
     def __init__(self, serial_config: SerialConfig):
         super().__init__()
         self.setWindowTitle("Arcade Stick Debugger")
@@ -261,8 +273,15 @@ class DebuggerWindow(QMainWindow):
 
         layout.addWidget(self._build_system_group())
 
+        self._category_label = QLabel("Category:")
+        self._category_filter = QComboBox()
+        self._category_filter.addItems(["ALL", "LOG", "RAW"])
+        self._category_filter.setCurrentText("LOG")
+        self._category_filter.currentTextChanged.connect(self._handle_category_filter_change)
+        self._category_filter_value = "LOG"
+        self._log_level_label = QLabel("Log level:")
         self._log_filter = QComboBox()
-        self._log_filter.addItems(["ALL", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        self._log_filter.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         self._log_filter.setCurrentText("INFO")
         self._log_filter.currentTextChanged.connect(self._handle_log_filter_change)
         self._search_term = ""
@@ -281,9 +300,12 @@ class DebuggerWindow(QMainWindow):
 
         self._log_view = QTextEdit()
         self._log_view.setReadOnly(True)
+        self._log_view.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self._log_view.setPlaceholderText("Waiting for device logs...")
         log_controls = QHBoxLayout()
-        log_controls.addWidget(QLabel("Log level:"))
+        log_controls.addWidget(self._category_label)
+        log_controls.addWidget(self._category_filter)
+        log_controls.addWidget(self._log_level_label)
         log_controls.addWidget(self._log_filter)
         log_controls.addStretch()
         log_controls.addWidget(QLabel("Search:"))
@@ -347,10 +369,11 @@ class DebuggerWindow(QMainWindow):
         self._serial_connected = False
         self._serial_config = serial_config
         self._valid_buttons = set(self._button_widgets.keys())
-        self._log_history: list[tuple[str, str]] = []
+        self._log_history: list[tuple[str, str, Optional[Dict[str, object]], str, str]] = []
         self._log_filter_level = "INFO"
         self._print_logs = serial_config.print_logs
         self._update_search_controls()
+        self._update_log_filter_visibility()
 
         self._set_controls_enabled(False)
 
@@ -491,18 +514,19 @@ class DebuggerWindow(QMainWindow):
             data = json.loads(line)
         except json.JSONDecodeError:
             level = self._infer_level(line) or "INFO"
-            self._record_log(level, line)
+            self._record_log("RAW", level, None, line)
             return
 
         msg_type = str(data.get("type", "")).upper()
+        category = self._normalize_category(msg_type)
 
         if msg_type == "STATE":
             self._handle_state_message(data)
         elif msg_type == "READY":
             self._handle_ready_message(data)
 
-        level = data.get("level", "INFO" if msg_type == "LOG" else "INFO")
-        self._record_log(level, line)
+        level = data.get("level", "INFO")
+        self._record_log(category, level, data, line)
 
     # ------------------------------------------------------------------
     # Message handlers
@@ -550,7 +574,7 @@ class DebuggerWindow(QMainWindow):
             "message": message,
             "timestamp": time.monotonic(),
         }
-        self._record_log(level_name, json.dumps(local_record))
+        self._record_log("LOG", level_name, local_record, json.dumps(local_record))
 
     def _log_info(self, message: str):
         self._log_with_level("INFO", message)
@@ -564,19 +588,33 @@ class DebuggerWindow(QMainWindow):
     def _log_debug(self, message: str):
         self._log_with_level("DEBUG", message)
 
-    def _record_log(self, level_name: str, raw_line: str):
+    def _record_log(self, category: str, level_name: str, parsed: Optional[Dict[str, object]], raw_line: str):
         """Persist a log entry in the UI, optionally echoing to stdout if requested."""
+        category = (category or "RAW").upper()
         level_name = str(level_name).upper()
-        entry = (level_name, raw_line)
+        display_ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        entry = (category, level_name, parsed, raw_line, display_ts)
         self._log_history.append(entry)
-        if self._should_display(level_name):
-            self._log_view.append(raw_line)
+        if self._should_display(category, level_name):
+            self._append_formatted_entry(entry)
         if self._print_logs:
             try:
-                print(raw_line)
+                print(self._format_plain_text(entry))
             except Exception:
                 pass
         self._update_search_controls()
+
+    def _handle_category_filter_change(self, text: str):
+        """Update the active message category filter."""
+        self._category_filter_value = text.upper()
+        self._update_log_filter_visibility()
+        self._refresh_log_view()
+
+    def _update_log_filter_visibility(self):
+        """Show or hide the log level controls based on category selection."""
+        is_log = self._category_filter_value in {"ALL", "LOG"}
+        self._log_level_label.setVisible(is_log)
+        self._log_filter.setVisible(is_log)
 
     def _send_log_command(self, level_name: str, message: str) -> bool:
         """Best-effort attempt to relay host logs through the firmware."""
@@ -601,6 +639,13 @@ class DebuggerWindow(QMainWindow):
                     return candidate
         return None
 
+    @staticmethod
+    def _normalize_category(msg_type: str) -> str:
+        upper = (msg_type or "").upper()
+        if upper == "LOG" or not upper:
+            return "LOG"
+        return "RAW"
+
     def _handle_log_filter_change(self, text: str):
         """Adjust the visible log level threshold."""
         self._log_filter_level = text.upper()
@@ -613,6 +658,96 @@ class DebuggerWindow(QMainWindow):
         self._search_cursor = None
         self._restart_search()
         self._update_search_controls()
+
+    def _append_formatted_entry(self, entry: tuple[str, str, Optional[Dict[str, object]], str]):
+        category, level_name, parsed, raw_line, display_ts = entry
+        cursor = self._log_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        if self._log_view.toPlainText():
+            cursor.insertBlock()
+
+        if category == "LOG" and isinstance(parsed, dict):
+            self._insert_log_line(cursor, level_name, parsed, display_ts)
+        elif isinstance(parsed, dict):
+            text = self._format_plain_text(entry)
+            color = self._EVENT_COLOR if category != "RAW" else None
+            self._insert_text(cursor, text, color)
+        else:
+            self._insert_text(cursor, raw_line)
+
+    def _insert_log_line(self, cursor: QTextCursor, level_name: str, parsed: Dict[str, object], display_ts: str):
+        ts_value = self._safe_float(parsed.get("timestamp"))
+        logger_name = str(parsed.get("logger", "") or "")
+        message = parsed.get("message")
+        components: list[tuple[str, Optional[QColor]]] = []
+        components.append((display_ts, self._TIMESTAMP_COLOR))
+        level_color = self._LEVEL_COLORS.get(level_name, self._LEVEL_COLORS.get("INFO", QColor("#0aa15f")))
+        components.append((level_name, level_color))
+        if logger_name:
+            components.append((logger_name, self._LOGGER_COLOR))
+        if message is None:
+            message_text = ""
+        else:
+            message_text = str(message)
+        message_text = message_text.replace("\n", "  ")
+        for index, (text, color) in enumerate(components):
+            if index > 0:
+                self._insert_text(cursor, " ")
+            self._insert_text(cursor, text, color)
+        if message_text:
+            if components:
+                self._insert_text(cursor, " – ")
+            self._insert_text(cursor, message_text)
+
+    @staticmethod
+    def _insert_text(cursor: QTextCursor, text: str, color: Optional[QColor] = None, weight: Optional[int] = None):
+        if not text:
+            return
+        fmt = QTextCharFormat()
+        if color is not None:
+            fmt.setForeground(color)
+        if weight is not None:
+            fmt.setFontWeight(weight)
+        cursor.insertText(text, fmt)
+
+    @staticmethod
+    def _safe_float(value: Optional[object]) -> Optional[float]:
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _format_plain_text(self, entry: tuple[str, str, Optional[Dict[str, object]], str]) -> str:
+        category, level_name, parsed, raw_line, display_ts = entry
+        if category == "LOG" and isinstance(parsed, dict):
+            ts_value = self._safe_float(parsed.get("timestamp"))
+            logger_name = str(parsed.get("logger", "") or "")
+            message = parsed.get("message")
+            if message is None:
+                message_text = ""
+            else:
+                message_text = str(message)
+            message_text = message_text.replace("\n", "  ")
+            ts_text = f"{display_ts} " if display_ts else ""
+            logger_text = f"{logger_name} " if logger_name else ""
+            separator = "– " if message_text else ""
+            return f"{ts_text}{level_name:<8} {logger_text}{separator}{message_text}".strip()
+        if isinstance(parsed, dict):
+            message = parsed.get("message")
+            if message is not None:
+                msg = str(message).replace("\n", "  ")
+                ts_value = self._safe_float(parsed.get("timestamp"))
+                parts = []
+                if display_ts:
+                    parts.append(display_ts)
+                event_type = str(parsed.get("type", "EVENT")).upper()
+                parts.append(event_type)
+                source = parsed.get("source")
+                if source:
+                    parts.append(str(source))
+                parts.append(msg)
+                return " ".join(parts)
+        return raw_line
 
     def _handle_save_logs(self):
         """Persist the current log history to disk via a file dialog."""
@@ -628,29 +763,32 @@ class DebuggerWindow(QMainWindow):
             return
         try:
             with open(filename, "w", encoding="utf-8") as fh:
-                for _, display in self._log_history:
-                    fh.write(display)
+                for entry in self._log_history:
+                    fh.write(self._format_plain_text(entry))
                     fh.write("\n")
         except Exception as exc:  # pragma: no cover - filesystem issues
-            self._record_log("ERROR", f"Failed to save log: {exc}")
+            self._record_log("LOG", "ERROR", f"Failed to save log: {exc}")
 
     def _refresh_log_view(self):
         """Rebuild the visible log pane based on the active filter."""
         self._log_view.clear()
-        for level_name, display in self._log_history:
-            if self._should_display(level_name):
-                self._log_view.append(display)
+        for entry in self._log_history:
+            category, level_name, _, _, _ = entry
+            if self._should_display(category, level_name):
+                self._append_formatted_entry(entry)
         # After rebuilding the view, reset search highlight if needed.
         self._restart_search()
         self._update_search_controls()
 
-    def _should_display(self, level_name: str) -> bool:
-        """Return True when a log of the given level passes the active filter."""
-        if self._log_filter_level == "ALL":
-            return True
-        level_value = _LEVEL_PRIORITY.get(level_name, INFO)
-        threshold = _LEVEL_PRIORITY.get(self._log_filter_level, INFO)
-        return level_value >= threshold
+    def _should_display(self, category: str, level_name: str) -> bool:
+        """Return True when an entry passes the active category/level filters."""
+        if self._category_filter_value != "ALL" and category != self._category_filter_value:
+            return False
+        if category == "LOG":
+            level_value = _LEVEL_PRIORITY.get(level_name, INFO)
+            threshold = _LEVEL_PRIORITY.get(self._log_filter_level, INFO)
+            return level_value >= threshold
+        return True
 
     def _handle_search_text_change(self, text: str):
         """Update the search query and move the caret when necessary."""
