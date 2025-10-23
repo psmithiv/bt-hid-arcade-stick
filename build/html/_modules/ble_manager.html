@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ble_manager &#8212; Bluetooth HID Arcade Stick  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for ble_manager</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">BLE management layer for the Bluetooth HID arcade stick.</span>
+<span class="sd">Handles advertising, connection lifecycle, pairing control, and exposes</span>
+<span class="sd">the HID service used by the HID controller.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">firmware_logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">adafruit_ble</span><span class="w"> </span><span class="kn">import</span> <span class="n">BLERadio</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">adafruit_ble.advertising.standard</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProvideServicesAdvertisement</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">adafruit_ble.advertising</span><span class="w"> </span><span class="kn">import</span> <span class="n">AdvertisementError</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">adafruit_ble.services.standard.hid</span><span class="w"> </span><span class="kn">import</span> <span class="n">HIDService</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>  <span class="c1"># pragma: no cover - host environment / unit tests</span>
+    <span class="n">BLERadio</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">ProvideServicesAdvertisement</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">AdvertisementError</span> <span class="o">=</span> <span class="ne">RuntimeError</span>
+    <span class="n">HIDService</span> <span class="o">=</span> <span class="kc">None</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">digitalio</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>  <span class="c1"># pragma: no cover - host environment / unit tests</span>
+    <span class="n">digitalio</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="BLEManager">
+<a class="viewcode-back" href="../reference.html#ble_manager.BLEManager">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">BLEManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Manage BLE HID lifecycle, pairing, and connection state.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build the BLE manager around the provided configuration.</span>
+
+<span class="sd">        :param dict config: BLE configuration block from :mod:`config`, including</span>
+<span class="sd">            the advertised name, pairing timeouts, and optional pairing button pin.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;ble_manager&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;device_name&quot;</span><span class="p">,</span> <span class="s2">&quot;ArcadeStick&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_hold_ms</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pairing_hold_ms&quot;</span><span class="p">,</span> <span class="mi">3000</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_timeout_sec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pairing_timeout_sec&quot;</span><span class="p">,</span> <span class="mi">180</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pair_button_pin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pairing_button_pin&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_hid_service</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advertisement</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_start</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bonded</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pair_button</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_setup_pair_button</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_event_listeners</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">if</span> <span class="n">BLERadio</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">HIDService</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;BLE stack is unavailable; disabling Bluetooth functionality.&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                <span class="s2">&quot;disabled&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;BLE stack unavailable on this platform&quot;</span><span class="p">,</span>
+                <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;adafruit_ble_missing&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initialize_ble</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bonded</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_detect_existing_bond</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bonded</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Existing bond detected; advertising for reconnection.&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_start_advertising</span><span class="p">(</span><span class="n">initial</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;No bond detected; entering automatic pairing mode.&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">enter_pairing_mode</span><span class="p">()</span>
+
+    <span class="c1"># ---------------------------------------------------------------------</span>
+    <span class="c1"># Event listener support</span>
+
+<div class="viewcode-block" id="BLEManager.add_event_listener">
+<a class="viewcode-back" href="../reference.html#ble_manager.BLEManager.add_event_listener">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_event_listener</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">listener</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Register a callable notified when BLE state changes.</span>
+
+<span class="sd">        :param callable listener: Function accepting a single dictionary payload</span>
+<span class="sd">            describing the BLE event.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">listener</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_event_listeners</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_event_listeners</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">listener</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">listener</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_status_snapshot</span><span class="p">())</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pragma: no cover - listener safety</span>
+            <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="BLEManager.remove_event_listener">
+<a class="viewcode-back" href="../reference.html#ble_manager.BLEManager.remove_event_listener">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">remove_event_listener</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">listener</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Remove a previously registered event listener.</span>
+
+<span class="sd">        :param callable listener: Listener previously passed to :meth:`add_event_listener`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">listener</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_event_listeners</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_event_listeners</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">listener</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_emit_event</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">,</span> <span class="o">**</span><span class="n">payload</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Dispatch a BLE status event to registered listeners.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_event_listeners</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;event&quot;</span><span class="p">:</span> <span class="n">event</span><span class="p">,</span> <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()}</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">payload</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">data</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+        <span class="k">for</span> <span class="n">listener</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_event_listeners</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">listener</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pragma: no cover - listener safety</span>
+                <span class="k">pass</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_status_snapshot</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a snapshot describing the current BLE status.&quot;&quot;&quot;</span>
+        <span class="n">advertising</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">advertising</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">advertising</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                <span class="n">advertising</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;BLE status&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;BLE stack unavailable&quot;</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;BLE connected&quot;</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;BLE pairing active&quot;</span>
+        <span class="k">elif</span> <span class="n">advertising</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;BLE advertising&quot;</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;event&quot;</span><span class="p">:</span> <span class="s2">&quot;status&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">,</span>
+            <span class="s2">&quot;connected&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span><span class="p">,</span>
+            <span class="s2">&quot;pairing_active&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span><span class="p">,</span>
+            <span class="s2">&quot;bonded&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bonded</span><span class="p">,</span>
+            <span class="s2">&quot;advertising&quot;</span><span class="p">:</span> <span class="n">advertising</span><span class="p">,</span>
+            <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">(),</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_setup_pair_button</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Configure the pairing button input if hardware is assigned.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_button_pin</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Pairing button pin is not configured; skipping hardware setup.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">digitalio</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;digitalio module is unavailable; pairing button support disabled.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="n">button</span> <span class="o">=</span> <span class="n">digitalio</span><span class="o">.</span><span class="n">DigitalInOut</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_pair_button_pin</span><span class="p">)</span>
+        <span class="n">button</span><span class="o">.</span><span class="n">switch_to_input</span><span class="p">(</span><span class="n">pull</span><span class="o">=</span><span class="n">digitalio</span><span class="o">.</span><span class="n">Pull</span><span class="o">.</span><span class="n">UP</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Pairing button configured on pin </span><span class="si">%s</span><span class="s2">.&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_button_pin</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">button</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_initialize_ble</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Instantiate BLE radio, HID service, and advertisement.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_hid_service</span> <span class="o">=</span> <span class="n">HIDService</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="o">=</span> <span class="n">BLERadio</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="k">pass</span>  <span class="c1"># Some adapters may not allow renaming.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advertisement</span> <span class="o">=</span> <span class="n">ProvideServicesAdvertisement</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_hid_service</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_advertisement</span><span class="o">.</span><span class="n">complete_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Initialized BLE stack with advertised name </span><span class="si">%s</span><span class="s2">.&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+            <span class="s2">&quot;initialized&quot;</span><span class="p">,</span>
+            <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;BLE initialized as &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">,</span>
+            <span class="n">device_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_detect_existing_bond</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Determine whether the adapter already has bonded peers.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">bonded</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">_adapter</span><span class="p">,</span> <span class="s2">&quot;bonded&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>  <span class="c1"># pylint: disable=protected-access</span>
+            <span class="n">has_bond</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">bonded</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Detected bonded peers: </span><span class="si">%s</span><span class="s2">.&quot;</span><span class="p">,</span> <span class="n">bonded</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">has_bond</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Adapter does not expose bonded peers.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">hid_service</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Expose the HID service for consumption by other modules.</span>
+
+<span class="sd">        :returns: :class:`adafruit_ble.services.standard.hid.HIDService` instance or ``None``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_hid_service</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">connected</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the current BLE connection status.</span>
+
+<span class="sd">        :returns: ``True`` if at least one Central is connected.</span>
+<span class="sd">        :rtype: bool</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span>
+
+<div class="viewcode-block" id="BLEManager.poll">
+<a class="viewcode-back" href="../reference.html#ble_manager.BLEManager.poll">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">poll</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Service BLE events such as advertising, connection, or pairing.</span>
+<span class="sd">        This should be called frequently from the main loop.</span>
+
+<span class="sd">        :returns: ``None``</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_update_pair_button</span><span class="p">(</span><span class="n">now</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_update_connection_state</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_enforce_pairing_timeout</span><span class="p">(</span><span class="n">now</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_pair_button</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Monitor the pairing button for long-press detection.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_button</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">pressed</span> <span class="o">=</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_button</span><span class="o">.</span><span class="n">value</span>  <span class="c1"># Active-low assumption</span>
+
+        <span class="k">if</span> <span class="n">pressed</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span> <span class="o">=</span> <span class="n">now</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Pairing button press detected.&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">pressed</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">held_ms</span> <span class="o">=</span> <span class="p">(</span><span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span><span class="p">)</span> <span class="o">*</span> <span class="mi">1000</span>
+            <span class="k">if</span> <span class="n">held_ms</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_hold_ms</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Pairing button held for </span><span class="si">%.0f</span><span class="s2"> ms; entering pairing mode.&quot;</span><span class="p">,</span> <span class="n">held_ms</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">enter_pairing_mode</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">pressed</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                <span class="s2">&quot;Pairing button released after </span><span class="si">%.0f</span><span class="s2"> ms.&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span><span class="p">)</span> <span class="o">*</span> <span class="mi">1000</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pair_press_start</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_connection_state</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Monitor BLE connection transitions and manage advertising.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">connected</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_bonded</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span> <span class="o">=</span> <span class="kc">False</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_start</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;BLE connection established; active connections: </span><span class="si">%d</span><span class="s2">.&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">connections</span><span class="p">))</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">stop_advertising</span><span class="p">()</span>
+                <span class="k">except</span> <span class="n">AdvertisementError</span><span class="p">:</span>
+                    <span class="k">pass</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                    <span class="s2">&quot;connected&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;BLE connected&quot;</span><span class="p">,</span>
+                    <span class="n">connections</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">connections</span><span class="p">),</span>
+                <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                    <span class="s2">&quot;pairing_active&quot;</span><span class="p">,</span>
+                    <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Pairing mode deactivated (connected)&quot;</span><span class="p">,</span>
+                    <span class="n">active</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;BLE connection closed.&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_connected</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span><span class="s2">&quot;disconnected&quot;</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s2">&quot;BLE disconnected&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">advertising</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_start_advertising</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_enforce_pairing_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">now</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exit pairing mode if the timeout expires without connection.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_start</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="n">now</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_start</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_timeout_sec</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Pairing mode timed out after </span><span class="si">%d</span><span class="s2"> seconds.&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_timeout_sec</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_start</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                <span class="s2">&quot;pairing_timeout&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Pairing mode timed out after </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_pairing_timeout_sec</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">,</span>
+                <span class="n">timeout</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_pairing_timeout_sec</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                <span class="s2">&quot;pairing_active&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Pairing mode deactivated (timeout)&quot;</span><span class="p">,</span>
+                <span class="n">active</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_start_advertising</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_start_advertising</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Begin BLE advertising if possible.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_advertisement</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Advertising in pairing mode under identifier &#39;</span><span class="si">%s</span><span class="s2">&#39;.&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span><span class="p">)</span>
+            <span class="n">advert_mode</span> <span class="o">=</span> <span class="s2">&quot;pairing&quot;</span>
+        <span class="k">elif</span> <span class="n">initial</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bonded</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;No existing bond detected; advertising for new connection.&quot;</span><span class="p">)</span>
+            <span class="n">advert_mode</span> <span class="o">=</span> <span class="s2">&quot;initial&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Advertising for reconnection as &#39;</span><span class="si">%s</span><span class="s2">&#39;.&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_device_name</span><span class="p">)</span>
+            <span class="n">advert_mode</span> <span class="o">=</span> <span class="s2">&quot;reconnect&quot;</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">start_advertising</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_advertisement</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                <span class="s2">&quot;advertising&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Advertising (</span><span class="si">{</span><span class="n">advert_mode</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">,</span>
+                <span class="n">mode</span><span class="o">=</span><span class="n">advert_mode</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="n">AdvertisementError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;Encountered advertising error: </span><span class="si">%s</span><span class="s2">.&quot;</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                <span class="s2">&quot;advertising_error&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Advertising error: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span>
+            <span class="p">)</span>
+
+<div class="viewcode-block" id="BLEManager.enter_pairing_mode">
+<a class="viewcode-back" href="../reference.html#ble_manager.BLEManager.enter_pairing_mode">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">enter_pairing_mode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Clear existing bonds (if any) and start pairing mode advertising.</span>
+
+<span class="sd">        :returns: ``None``</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;BLE stack is unavailable; pairing mode request ignored.&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+                <span class="s2">&quot;pairing_error&quot;</span><span class="p">,</span>
+                <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Cannot enter pairing mode; BLE stack unavailable&quot;</span><span class="p">,</span>
+                <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;ble_unavailable&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Entering pairing mode; clearing bonds and restarting advertising.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_active</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pairing_start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bonded</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_emit_event</span><span class="p">(</span>
+            <span class="s2">&quot;pairing_active&quot;</span><span class="p">,</span>
+            <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Pairing mode activated&quot;</span><span class="p">,</span>
+            <span class="n">active</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">stop_advertising</span><span class="p">()</span>
+        <span class="k">except</span> <span class="n">AdvertisementError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">disconnect_all</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ble</span><span class="o">.</span><span class="n">erase_bonding</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;erase_bonding operation not exposed on this adapter.&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_start_advertising</span><span class="p">()</span></div>
+</div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">Bluetooth HID Arcade Stick</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hardware.html">Hardware Wiring</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Paul Smith IV.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

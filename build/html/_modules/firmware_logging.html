@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>firmware_logging &#8212; Bluetooth HID Arcade Stick  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for firmware_logging</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Structured logging helpers for the Bluetooth HID arcade stick.</span>
+
+<span class="sd">Lightweight logging utilities shared by firmware modules and host tooling.</span>
+<span class="sd">Messages are emitted to the USB serial console as JSON records so the</span>
+<span class="sd">companion desktop UI and any other listener can observe the firmware’s state.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="n">DEBUG</span> <span class="o">=</span> <span class="mi">10</span>
+<span class="n">INFO</span> <span class="o">=</span> <span class="mi">20</span>
+<span class="n">WARNING</span> <span class="o">=</span> <span class="mi">30</span>
+<span class="n">ERROR</span> <span class="o">=</span> <span class="mi">40</span>
+<span class="n">CRITICAL</span> <span class="o">=</span> <span class="mi">50</span>
+
+<span class="n">_LEVEL_NAMES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">DEBUG</span><span class="p">:</span> <span class="s2">&quot;DEBUG&quot;</span><span class="p">,</span>
+    <span class="n">INFO</span><span class="p">:</span> <span class="s2">&quot;INFO&quot;</span><span class="p">,</span>
+    <span class="n">WARNING</span><span class="p">:</span> <span class="s2">&quot;WARNING&quot;</span><span class="p">,</span>
+    <span class="n">ERROR</span><span class="p">:</span> <span class="s2">&quot;ERROR&quot;</span><span class="p">,</span>
+    <span class="n">CRITICAL</span><span class="p">:</span> <span class="s2">&quot;CRITICAL&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="n">_NAME_TO_LEVEL</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">level</span> <span class="k">for</span> <span class="n">level</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_LEVEL_NAMES</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+<span class="n">_current_level</span> <span class="o">=</span> <span class="n">INFO</span>
+
+
+<div class="viewcode-block" id="set_level">
+<a class="viewcode-back" href="../reference.html#firmware_logging.set_level">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">set_level</span><span class="p">(</span><span class="n">level</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configure the global logging level.</span>
+
+<span class="sd">    :param level: Numeric constant or case-insensitive textual level name.</span>
+<span class="sd">    :type level: int | str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_current_level</span>
+    <span class="n">_current_level</span> <span class="o">=</span> <span class="n">_coerce_level</span><span class="p">(</span><span class="n">level</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_level">
+<a class="viewcode-back" href="../reference.html#firmware_logging.get_level">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_level</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return the currently active logging level.</span>
+
+<span class="sd">    :returns: Numeric logging level constant.</span>
+<span class="sd">    :rtype: int</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_current_level</span></div>
+
+
+
+<div class="viewcode-block" id="get_level_name">
+<a class="viewcode-back" href="../reference.html#firmware_logging.get_level_name">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_level_name</span><span class="p">(</span><span class="n">level</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Translate a numeric level to a printable name.</span>
+
+<span class="sd">    :param int level: Logging severity constant.</span>
+<span class="sd">    :returns: Uppercase textual representation (e.g. ``&quot;INFO&quot;``).</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_LEVEL_NAMES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">level</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="get_level_by_name">
+<a class="viewcode-back" href="../reference.html#firmware_logging.get_level_by_name">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_level_by_name</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Translate a textual level name to its numeric representation.</span>
+
+<span class="sd">    :param str name: Case-insensitive textual level name.</span>
+<span class="sd">    :returns: Numeric logging level constant.</span>
+<span class="sd">    :rtype: int</span>
+<span class="sd">    :raises ValueError: If the level name is unknown.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Level name must not be None&quot;</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_NAME_TO_LEVEL</span><span class="p">[</span><span class="n">name</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span>
+    <span class="k">except</span> <span class="ne">KeyError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown log level: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span></div>
+
+
+
+<div class="viewcode-block" id="Logger">
+<a class="viewcode-back" href="../reference.html#firmware_logging.Logger">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Logger</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Minimal logger that tags messages with a name.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create a logger with the supplied name.</span>
+
+<span class="sd">        :param str name: Identifier included in every JSON log record.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_name</span> <span class="o">=</span> <span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span> <span class="o">=</span> <span class="n">_emit</span>
+
+<div class="viewcode-block" id="Logger.debug">
+<a class="viewcode-back" href="../reference.html#firmware_logging.Logger.debug">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">debug</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">DEBUG</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_name</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Logger.info">
+<a class="viewcode-back" href="../reference.html#firmware_logging.Logger.info">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">INFO</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_name</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Logger.warning">
+<a class="viewcode-back" href="../reference.html#firmware_logging.Logger.warning">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">warning</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">WARNING</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_name</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span></div>
+
+
+    <span class="n">warn</span> <span class="o">=</span> <span class="n">warning</span>  <span class="c1"># Compatibility alias.</span>
+
+<div class="viewcode-block" id="Logger.error">
+<a class="viewcode-back" href="../reference.html#firmware_logging.Logger.error">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">ERROR</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_name</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Logger.critical">
+<a class="viewcode-back" href="../reference.html#firmware_logging.Logger.critical">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">critical</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">CRITICAL</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_name</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span></div>
+
+
+    <span class="n">fatal</span> <span class="o">=</span> <span class="n">critical</span>  <span class="c1"># Compatibility alias.</span>
+
+<div class="viewcode-block" id="Logger.log">
+<a class="viewcode-back" href="../reference.html#firmware_logging.Logger.log">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Emit a message at an arbitrary level.</span>
+
+<span class="sd">        :param level: Numeric or textual log level.</span>
+<span class="sd">        :param str message: Format string or message payload.</span>
+<span class="sd">        :param args: Optional ``printf``-style arguments.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">numeric_level</span> <span class="o">=</span> <span class="n">_coerce_level</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="n">numeric_level</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_name</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="get_logger">
+<a class="viewcode-back" href="../reference.html#firmware_logging.get_logger">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_logger</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Obtain a logger scoped by name.</span>
+
+<span class="sd">    :param str name: Identifier for the logger.</span>
+<span class="sd">    :returns: Instance of :class:`Logger`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">Logger</span><span class="p">(</span><span class="n">name</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_emit</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">level</span> <span class="o">&lt;</span> <span class="n">_current_level</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="n">record</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">get_level_name</span><span class="p">(</span><span class="n">level</span><span class="p">),</span>
+        <span class="s2">&quot;logger&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
+        <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">_format</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">),</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">time</span><span class="p">,</span> <span class="s2">&quot;monotonic&quot;</span><span class="p">):</span>
+        <span class="n">record</span><span class="p">[</span><span class="s2">&quot;timestamp&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+
+    <span class="c1"># Remove keys with falsy/None values except message.</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
+    <span class="n">payload</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="s2">&quot;log&quot;</span><span class="p">)</span>
+    <span class="n">_write_payload</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_write_payload</span><span class="p">(</span><span class="n">payload</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit the JSON payload while handling serial transport quirks.&quot;&quot;&quot;</span>
+    <span class="n">serialized</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">serialized</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="c1"># CircuitPython occasionally raises OSError 22 when flushing the USB CDC port.</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">exc</span><span class="o">.</span><span class="n">args</span> <span class="ow">or</span> <span class="n">exc</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">22</span><span class="p">:</span>
+            <span class="k">raise</span>
+        <span class="c1"># Fall back to a raw write; ignore further transport errors to keep firmware running.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">serialized</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">return</span>
+    <span class="n">_try_flush</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_try_flush</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Best-effort flush for stdout; tolerate transports that do not support it.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_format</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">message</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">message</span> <span class="o">%</span> <span class="n">args</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="c1"># Fallback that won&#39;t raise even if formatting fails.</span>
+        <span class="n">rendered</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="si">{}</span><span class="s2"> [</span><span class="si">{}</span><span class="s2">]&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">rendered</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_coerce_level</span><span class="p">(</span><span class="n">level</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Normalize textual or numeric levels to their integer representation.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">get_level_by_name</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">Bluetooth HID Arcade Stick</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hardware.html">Hardware Wiring</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../reference.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Paul Smith IV.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,6 +1,4 @@
-"""
-.. module:: debug_interface
-   :synopsis: Serial debug protocol for the Bluetooth HID arcade stick.
+"""Serial debug protocol for the Bluetooth HID arcade stick.
 
 The debug interface bridges host tooling (such as the virtual controller UI)
 with the running firmware. Host commands are received over the USB serial

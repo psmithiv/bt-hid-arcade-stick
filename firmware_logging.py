@@ -1,6 +1,4 @@
-"""
-.. module:: firmware_logging
-   :synopsis: Structured logging helpers for the Bluetooth HID arcade stick.
+"""Structured logging helpers for the Bluetooth HID arcade stick.
 
 Lightweight logging utilities shared by firmware modules and host tooling.
 Messages are emitted to the USB serial console as JSON records so the

@@ -31,6 +31,15 @@ autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 napoleon_google_docstring = False
 napoleon_numpy_docstring = False
+autodoc_mock_imports = [
+    "PySide6",
+    "serial",
+    "usb_hid",
+    "adafruit_ble",
+    "digitalio",
+    "board",
+    "supervisor",
+]
 
 templates_path = ["_templates"]
 exclude_patterns: list[str] = []

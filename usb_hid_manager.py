@@ -1,6 +1,4 @@
-"""
-.. module:: usb_hid_manager
-   :synopsis: USB HID mirroring helper for tethered debugging.
+"""USB HID mirroring helper for tethered debugging.
 
 Allows mirroring BLE HID reports over USB when the device is tethered,
 providing an additional debugging and testing path while developing.

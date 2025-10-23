@@ -1,6 +1,4 @@
-"""
-.. module:: input_manager
-   :synopsis: GPIO polling and debouncing for the arcade stick buttons.
+"""GPIO polling and debouncing for the arcade stick buttons.
 
 Responsible for initializing GPIO inputs and exposing debounced button
 state changes to upstream consumers. Buttons are assumed to be wired

@@ -1,9 +1,7 @@
-"""
-.. module:: code
-   :synopsis: Firmware entry point for the Bluetooth HID arcade stick.
+"""Firmware entry point for the Bluetooth HID arcade stick.
 
-Initializes every subsystem (BLE, USB, input polling, debugging) and
-drives the cooperative main loop that runs on the CircuitPython board.
+Initializes every subsystem (BLE, USB, input polling, debugging) and drives
+the cooperative main loop that runs on the CircuitPython board.
 """
 
 import time

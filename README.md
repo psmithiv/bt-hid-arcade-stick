@@ -23,6 +23,13 @@ sphinx-build -b html docs build/html
 open build/html/index.html  # macOS; adjust for your platform
 ```
 
+For CI or quick local validation, run the helper script alongside the deploy
+utility:
+
+```bash
+python scripts/build_docs.py
+```
+
 The Sphinx site supersedes the long-form content that previously lived in this
 README. The sections below keep a brief summary for quick discovery; see the
 generated docs for the complete write-up.

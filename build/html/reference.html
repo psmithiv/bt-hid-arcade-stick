@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>API Reference &#8212; Bluetooth HID Arcade Stick  documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Hardware Wiring" href="hardware.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="api-reference">
+<h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h1>
+<p>The following sections are generated directly from the source code using
+Sphinx autodoc. Refer to them for detailed API signatures and docstrings.</p>
+<section id="module-config">
+<span id="firmware-modules"></span><h2>Firmware Modules<a class="headerlink" href="#module-config" title="Link to this heading">¶</a></h2>
+<p>Central configuration for the Bluetooth HID arcade stick firmware.</p>
+<p>This module centralizes hardware mappings and tunables so they can be adjusted
+without touching the runtime logic.</p>
+<p>All buttons are assumed to be wired <strong>active-low</strong> with pull-up resistors.
+Update <code class="xref py py-data docutils literal notranslate"><span class="pre">PIN_MAP</span></code> with the exact GPIO connections used on the target PCB
+so the firmware reports the correct button state in hardware and when mirrored
+through the debug interface.</p>
+<p id="module-code">Firmware entry point for the Bluetooth HID arcade stick.</p>
+<p>Initializes every subsystem (BLE, USB, input polling, debugging) and drives
+the cooperative main loop that runs on the CircuitPython board.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="code.main">
+<span class="sig-prename descclassname"><span class="pre">code.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/code.html#main"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#code.main" title="Link to this definition">¶</a></dt>
+<dd><p>Initialize the firmware subsystems and enter the main service loop.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>This function never returns; the loop runs indefinitely on-device.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p id="module-input_manager">GPIO polling and debouncing for the arcade stick buttons.</p>
+<p>Responsible for initializing GPIO inputs and exposing debounced button
+state changes to upstream consumers. Buttons are assumed to be wired
+active-low with pull-up resistors; see <a class="reference internal" href="#module-config" title="config"><code class="xref py py-mod docutils literal notranslate"><span class="pre">config</span></code></a> for the mapping.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="input_manager.InputEvents">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">input_manager.</span></span><span class="sig-name descname"><span class="pre">InputEvents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pressed</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">released</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#input_manager.InputEvents" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="input_manager.InputEvents.pressed">
+<span class="sig-name descname"><span class="pre">pressed</span></span><a class="headerlink" href="#input_manager.InputEvents.pressed" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 0</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="input_manager.InputEvents.released">
+<span class="sig-name descname"><span class="pre">released</span></span><a class="headerlink" href="#input_manager.InputEvents.released" title="Link to this definition">¶</a></dt>
+<dd><p>Alias for field number 1</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="input_manager.InputManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">input_manager.</span></span><span class="sig-name descname"><span class="pre">InputManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/input_manager.html#InputManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#input_manager.InputManager" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Poll GPIO-backed buttons and emit debounced transitions.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="input_manager.InputManager.poll">
+<span class="sig-name descname"><span class="pre">poll</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/input_manager.html#InputManager.poll"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#input_manager.InputManager.poll" title="Link to this definition">¶</a></dt>
+<dd><p>Poll hardware inputs and return debounced button transitions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Named tuple with <code class="docutils literal notranslate"><span class="pre">pressed</span></code> and <code class="docutils literal notranslate"><span class="pre">released</span></code> sets.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#input_manager.InputEvents" title="input_manager.InputEvents">InputEvents</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-hid_controller">Translate logical button activity into HID reports.</p>
+<p>Coordinates input events with the BLE and USB backends and maintains the
+current controller state so redundant traffic is avoided. Button ordering
+must match the HID report descriptor; see <a class="reference internal" href="#module-config" title="config"><code class="xref py py-mod docutils literal notranslate"><span class="pre">config</span></code></a> for the wiring map.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="hid_controller.HIDController">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">hid_controller.</span></span><span class="sig-name descname"><span class="pre">HIDController</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ble_manager</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">usb_manager</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/hid_controller.html#HIDController"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hid_controller.HIDController" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Manage HID state and dispatch reports over BLE and USB.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="hid_controller.HIDController.button_names">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">button_names</span></span><a class="headerlink" href="#hid_controller.HIDController.button_names" title="Link to this definition">¶</a></dt>
+<dd><p>Return the ordered list of logical button names.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>List of button identifiers matching the HID descriptor order.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="hid_controller.HIDController.active_buttons">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">active_buttons</span></span><a class="headerlink" href="#hid_controller.HIDController.active_buttons" title="Link to this definition">¶</a></dt>
+<dd><p>Return a snapshot of currently active buttons.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Set of logical button names that are currently pressed.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>set[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hid_controller.HIDController.set_state_callback">
+<span class="sig-name descname"><span class="pre">set_state_callback</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">callback</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/hid_controller.html#HIDController.set_state_callback"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hid_controller.HIDController.set_state_callback" title="Link to this definition">¶</a></dt>
+<dd><p>Register a callback invoked when button state changes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>callback</strong> (<em>callable</em>) – Function accepting a sorted list of active buttons.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hid_controller.HIDController.inject_virtual_event">
+<span class="sig-name descname"><span class="pre">inject_virtual_event</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pressed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">released</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/hid_controller.html#HIDController.inject_virtual_event"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hid_controller.HIDController.inject_virtual_event" title="Link to this definition">¶</a></dt>
+<dd><p>Simulate button events for debugging/testing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>pressed</strong> (<em>Iterable</em><em>[</em><em>str</em><em>]</em>) – Logical buttons to mark as pressed.</p></li>
+<li><p><strong>released</strong> (<em>Iterable</em><em>[</em><em>str</em><em>]</em>) – Logical buttons to mark as released.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="hid_controller.HIDController.process_inputs">
+<span class="sig-name descname"><span class="pre">process_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_events</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/hid_controller.html#HIDController.process_inputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#hid_controller.HIDController.process_inputs" title="Link to this definition">¶</a></dt>
+<dd><p>Update internal button state and emit HID reports as needed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input_events</strong> (<a class="reference internal" href="#input_manager.InputEvents" title="input_manager.InputEvents"><em>InputEvents</em></a>) – Debounced button transitions from <a class="reference internal" href="#module-input_manager" title="input_manager"><code class="xref py py-mod docutils literal notranslate"><span class="pre">input_manager</span></code></a>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-ble_manager">BLE management layer for the Bluetooth HID arcade stick.
+Handles advertising, connection lifecycle, pairing control, and exposes
+the HID service used by the HID controller.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="ble_manager.BLEManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ble_manager.</span></span><span class="sig-name descname"><span class="pre">BLEManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ble_manager.html#BLEManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#ble_manager.BLEManager" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Manage BLE HID lifecycle, pairing, and connection state.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="ble_manager.BLEManager.add_event_listener">
+<span class="sig-name descname"><span class="pre">add_event_listener</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">listener</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ble_manager.html#BLEManager.add_event_listener"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#ble_manager.BLEManager.add_event_listener" title="Link to this definition">¶</a></dt>
+<dd><p>Register a callable notified when BLE state changes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>listener</strong> (<em>callable</em>) – Function accepting a single dictionary payload
+describing the BLE event.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ble_manager.BLEManager.remove_event_listener">
+<span class="sig-name descname"><span class="pre">remove_event_listener</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">listener</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ble_manager.html#BLEManager.remove_event_listener"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#ble_manager.BLEManager.remove_event_listener" title="Link to this definition">¶</a></dt>
+<dd><p>Remove a previously registered event listener.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>listener</strong> (<em>callable</em>) – Listener previously passed to <a class="reference internal" href="#ble_manager.BLEManager.add_event_listener" title="ble_manager.BLEManager.add_event_listener"><code class="xref py py-meth docutils literal notranslate"><span class="pre">add_event_listener()</span></code></a>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ble_manager.BLEManager.hid_service">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">hid_service</span></span><a class="headerlink" href="#ble_manager.BLEManager.hid_service" title="Link to this definition">¶</a></dt>
+<dd><p>Expose the HID service for consumption by other modules.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">adafruit_ble.services.standard.hid.HIDService</span></code> instance or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ble_manager.BLEManager.connected">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">connected</span></span><a class="headerlink" href="#ble_manager.BLEManager.connected" title="Link to this definition">¶</a></dt>
+<dd><p>Return the current BLE connection status.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> if at least one Central is connected.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ble_manager.BLEManager.poll">
+<span class="sig-name descname"><span class="pre">poll</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ble_manager.html#BLEManager.poll"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#ble_manager.BLEManager.poll" title="Link to this definition">¶</a></dt>
+<dd><p>Service BLE events such as advertising, connection, or pairing.
+This should be called frequently from the main loop.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ble_manager.BLEManager.enter_pairing_mode">
+<span class="sig-name descname"><span class="pre">enter_pairing_mode</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/ble_manager.html#BLEManager.enter_pairing_mode"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#ble_manager.BLEManager.enter_pairing_mode" title="Link to this definition">¶</a></dt>
+<dd><p>Clear existing bonds (if any) and start pairing mode advertising.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-usb_hid_manager">USB HID mirroring helper for tethered debugging.</p>
+<p>Allows mirroring BLE HID reports over USB when the device is tethered,
+providing an additional debugging and testing path while developing.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="usb_hid_manager.USBHIDManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">usb_hid_manager.</span></span><span class="sig-name descname"><span class="pre">USBHIDManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/usb_hid_manager.html#USBHIDManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#usb_hid_manager.USBHIDManager" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Stub USB HID manager used for state tracking.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="usb_hid_manager.USBHIDManager.enabled">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">enabled</span></span><a class="headerlink" href="#usb_hid_manager.USBHIDManager.enabled" title="Link to this definition">¶</a></dt>
+<dd><p>Return True when USB HID reporting is active.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> if USB mirroring is enabled.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="usb_hid_manager.USBHIDManager.set_enabled">
+<span class="sig-name descname"><span class="pre">set_enabled</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/usb_hid_manager.html#USBHIDManager.set_enabled"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#usb_hid_manager.USBHIDManager.set_enabled" title="Link to this definition">¶</a></dt>
+<dd><p>Update USB HID enabled state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>enabled</strong> (<em>bool</em>) – New enabled value.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="usb_hid_manager.USBHIDManager.send_report">
+<span class="sig-name descname"><span class="pre">send_report</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">report</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/usb_hid_manager.html#USBHIDManager.send_report"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#usb_hid_manager.USBHIDManager.send_report" title="Link to this definition">¶</a></dt>
+<dd><p>Send a HID report over USB if enabled.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>report</strong> (<em>dict</em>) – Snapshot of the current button state.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="usb_hid_manager.USBHIDManager.last_report">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">last_report</span></span><a class="headerlink" href="#usb_hid_manager.USBHIDManager.last_report" title="Link to this definition">¶</a></dt>
+<dd><p>Return the last report dispatched over USB.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Stored report dictionary.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-power_manager">Placeholder for power-management hooks.</p>
+<p>Future enhancements (battery monitoring, sleep management, etc.) can be
+added here. For now we provide a stub interface so other components can
+interact with a consistent API during development.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="power_manager.PowerManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">power_manager.</span></span><span class="sig-name descname"><span class="pre">PowerManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/power_manager.html#PowerManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#power_manager.PowerManager" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Stub power manager tracking power states and telemetry.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="power_manager.PowerManager.poll">
+<span class="sig-name descname"><span class="pre">poll</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/power_manager.html#PowerManager.poll"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#power_manager.PowerManager.poll" title="Link to this definition">¶</a></dt>
+<dd><p>Service power-related tasks such as battery monitoring or sleep.
+Stubbed until power management implementation is added.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-debug_interface">Serial debug protocol for the Bluetooth HID arcade stick.</p>
+<p>The debug interface bridges host tooling (such as the virtual controller UI)
+with the running firmware. Host commands are received over the USB serial
+console, translated into virtual button events, pairing requests, or log
+forwards, and the firmware state is mirrored back as structured JSON.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="debug_interface.DebugInterface">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">debug_interface.</span></span><span class="sig-name descname"><span class="pre">DebugInterface</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hid_controller</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ble_manager</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/debug_interface.html#DebugInterface"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#debug_interface.DebugInterface" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Facilitates host-driven debugging over the USB serial console.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="debug_interface.DebugInterface.poll">
+<span class="sig-name descname"><span class="pre">poll</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/debug_interface.html#DebugInterface.poll"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#debug_interface.DebugInterface.poll" title="Link to this definition">¶</a></dt>
+<dd><p>Process inbound serial commands and manage periodic state reports.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="debug_interface.DebugInterface.publish_state">
+<span class="sig-name descname"><span class="pre">publish_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">buttons</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/debug_interface.html#DebugInterface.publish_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#debug_interface.DebugInterface.publish_state" title="Link to this definition">¶</a></dt>
+<dd><p>Emit the current controller state to the host debugger.</p>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-firmware_logging">Structured logging helpers for the Bluetooth HID arcade stick.</p>
+<p>Lightweight logging utilities shared by firmware modules and host tooling.
+Messages are emitted to the USB serial console as JSON records so the
+companion desktop UI and any other listener can observe the firmware’s state.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="firmware_logging.set_level">
+<span class="sig-prename descclassname"><span class="pre">firmware_logging.</span></span><span class="sig-name descname"><span class="pre">set_level</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#set_level"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.set_level" title="Link to this definition">¶</a></dt>
+<dd><p>Configure the global logging level.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>level</strong> (<em>int</em><em> | </em><em>str</em>) – Numeric constant or case-insensitive textual level name.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="firmware_logging.get_level">
+<span class="sig-prename descclassname"><span class="pre">firmware_logging.</span></span><span class="sig-name descname"><span class="pre">get_level</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#get_level"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.get_level" title="Link to this definition">¶</a></dt>
+<dd><p>Return the currently active logging level.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Numeric logging level constant.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="firmware_logging.get_level_name">
+<span class="sig-prename descclassname"><span class="pre">firmware_logging.</span></span><span class="sig-name descname"><span class="pre">get_level_name</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#get_level_name"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.get_level_name" title="Link to this definition">¶</a></dt>
+<dd><p>Translate a numeric level to a printable name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>level</strong> (<em>int</em>) – Logging severity constant.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Uppercase textual representation (e.g. <code class="docutils literal notranslate"><span class="pre">&quot;INFO&quot;</span></code>).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="firmware_logging.get_level_by_name">
+<span class="sig-prename descclassname"><span class="pre">firmware_logging.</span></span><span class="sig-name descname"><span class="pre">get_level_by_name</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#get_level_by_name"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.get_level_by_name" title="Link to this definition">¶</a></dt>
+<dd><p>Translate a textual level name to its numeric representation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<em>str</em>) – Case-insensitive textual level name.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Numeric logging level constant.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>int</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – If the level name is unknown.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="firmware_logging.Logger">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">firmware_logging.</span></span><span class="sig-name descname"><span class="pre">Logger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#Logger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.Logger" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Minimal logger that tags messages with a name.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.debug">
+<span class="sig-name descname"><span class="pre">debug</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#Logger.debug"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.Logger.debug" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.info">
+<span class="sig-name descname"><span class="pre">info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#Logger.info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.Logger.info" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.warning">
+<span class="sig-name descname"><span class="pre">warning</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#Logger.warning"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.Logger.warning" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.warn">
+<span class="sig-name descname"><span class="pre">warn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#firmware_logging.Logger.warn" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.error">
+<span class="sig-name descname"><span class="pre">error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#Logger.error"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.Logger.error" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.critical">
+<span class="sig-name descname"><span class="pre">critical</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#Logger.critical"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.Logger.critical" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.fatal">
+<span class="sig-name descname"><span class="pre">fatal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#firmware_logging.Logger.fatal" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="firmware_logging.Logger.log">
+<span class="sig-name descname"><span class="pre">log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#Logger.log"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.Logger.log" title="Link to this definition">¶</a></dt>
+<dd><p>Emit a message at an arbitrary level.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>level</strong> – Numeric or textual log level.</p></li>
+<li><p><strong>message</strong> (<em>str</em>) – Format string or message payload.</p></li>
+<li><p><strong>args</strong> – Optional <code class="docutils literal notranslate"><span class="pre">printf</span></code>-style arguments.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="firmware_logging.get_logger">
+<span class="sig-prename descclassname"><span class="pre">firmware_logging.</span></span><span class="sig-name descname"><span class="pre">get_logger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/firmware_logging.html#get_logger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#firmware_logging.get_logger" title="Link to this definition">¶</a></dt>
+<dd><p>Obtain a logger scoped by name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<em>str</em>) – Identifier for the logger.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Instance of <a class="reference internal" href="#firmware_logging.Logger" title="firmware_logging.Logger"><code class="xref py py-class docutils literal notranslate"><span class="pre">Logger</span></code></a>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-tools.virtual_controller">
+<span id="desktop-tooling"></span><h2>Desktop Tooling<a class="headerlink" href="#module-tools.virtual_controller" title="Link to this heading">¶</a></h2>
+<p>Interactive desktop debugger UI for the Bluetooth HID arcade stick.
+Provides a quick way to send button events to the firmware debug
+interface and to view structured log output over the USB serial link.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialConfig">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tools.virtual_controller.</span></span><span class="sig-name descname"><span class="pre">SerialConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">port</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'Optional[str]'</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">baudrate</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">115200</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_detect</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'bool'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">print_logs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'bool'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#SerialConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.SerialConfig" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>port</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>baudrate</strong> (<em>int</em>)</p></li>
+<li><p><strong>auto_detect</strong> (<em>bool</em>)</p></li>
+<li><p><strong>print_logs</strong> (<em>bool</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialConfig.port">
+<span class="sig-name descname"><span class="pre">port</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#tools.virtual_controller.SerialConfig.port" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialConfig.baudrate">
+<span class="sig-name descname"><span class="pre">baudrate</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">115200</span></em><a class="headerlink" href="#tools.virtual_controller.SerialConfig.baudrate" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialConfig.auto_detect">
+<span class="sig-name descname"><span class="pre">auto_detect</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em><a class="headerlink" href="#tools.virtual_controller.SerialConfig.auto_detect" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialConfig.print_logs">
+<span class="sig-name descname"><span class="pre">print_logs</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em><a class="headerlink" href="#tools.virtual_controller.SerialConfig.print_logs" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialBridge">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tools.virtual_controller.</span></span><span class="sig-name descname"><span class="pre">SerialBridge</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#SerialBridge"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.SerialBridge" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QObject</span></code></p>
+<p>Qt-friendly wrapper around the serial worker thread.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>port</strong> (<em>str</em>)</p></li>
+<li><p><strong>baudrate</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialBridge.line_received">
+<span class="sig-name descname"><span class="pre">line_received</span></span><a class="headerlink" href="#tools.virtual_controller.SerialBridge.line_received" title="Link to this definition">¶</a></dt>
+<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialBridge.connection_changed">
+<span class="sig-name descname"><span class="pre">connection_changed</span></span><a class="headerlink" href="#tools.virtual_controller.SerialBridge.connection_changed" title="Link to this definition">¶</a></dt>
+<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialBridge.error">
+<span class="sig-name descname"><span class="pre">error</span></span><a class="headerlink" href="#tools.virtual_controller.SerialBridge.error" title="Link to this definition">¶</a></dt>
+<dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialBridge.start">
+<span class="sig-name descname"><span class="pre">start</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#SerialBridge.start"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.SerialBridge.start" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialBridge.stop">
+<span class="sig-name descname"><span class="pre">stop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#SerialBridge.stop"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.SerialBridge.stop" title="Link to this definition">¶</a></dt>
+<dd><p>Stop the worker thread and tear down the serial bridge.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tools.virtual_controller.SerialBridge.send">
+<span class="sig-name descname"><span class="pre">send</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#SerialBridge.send"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.SerialBridge.send" title="Link to this definition">¶</a></dt>
+<dd><p>Enqueue a line of text to be transmitted over serial.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>text</strong> (<em>str</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tools.virtual_controller.DebuggerWindow">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tools.virtual_controller.</span></span><span class="sig-name descname"><span class="pre">DebuggerWindow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#DebuggerWindow"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.DebuggerWindow" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QMainWindow</span></code></p>
+<p>Interactive debugger window hooked up to the firmware serial protocol.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>serial_config</strong> (<a class="reference internal" href="#tools.virtual_controller.SerialConfig" title="tools.virtual_controller.SerialConfig"><em>SerialConfig</em></a>)</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="tools.virtual_controller.DebuggerWindow.closeEvent">
+<span class="sig-name descname"><span class="pre">closeEvent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#DebuggerWindow.closeEvent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.DebuggerWindow.closeEvent" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tools.virtual_controller.DebuggerWindow.eventFilter">
+<span class="sig-name descname"><span class="pre">eventFilter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">obj</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#DebuggerWindow.eventFilter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.DebuggerWindow.eventFilter" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tools.virtual_controller.run">
+<span class="sig-prename descclassname"><span class="pre">tools.virtual_controller.</span></span><span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">argv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.run" title="Link to this definition">¶</a></dt>
+<dd><p>Launch the debugger UI.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>argv</strong> (<em>Sequence</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tools.virtual_controller.main">
+<span class="sig-prename descclassname"><span class="pre">tools.virtual_controller.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/tools/virtual_controller.html#main"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tools.virtual_controller.main" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">Bluetooth HID Arcade Stick</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hardware.html">Hardware Wiring</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-config">Firmware Modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-tools.virtual_controller">Desktop Tooling</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="hardware.html" title="previous chapter">Hardware Wiring</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Paul Smith IV.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/reference.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

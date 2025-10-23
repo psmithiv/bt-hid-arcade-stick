@@ -1,6 +1,4 @@
-"""
-.. module:: hid_controller
-   :synopsis: Translate logical button activity into HID reports.
+"""Translate logical button activity into HID reports.
 
 Coordinates input events with the BLE and USB backends and maintains the
 current controller state so redundant traffic is avoided. Button ordering

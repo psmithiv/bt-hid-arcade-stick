@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Overview &#8212; Bluetooth HID Arcade Stick  documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Hardware Wiring" href="hardware.html" />
+    <link rel="prev" title="Bluetooth HID Arcade Stick" href="index.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="overview">
+<h1>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h1>
+<p>The Bluetooth HID arcade stick project pairs CircuitPython firmware with a
+Qt-based desktop debugger. Together they allow rapid iteration on hardware
+inputs, BLE/USB HID reporting, and host-driven virtual button testing.</p>
+<section id="data-flow">
+<h2>Data Flow<a class="headerlink" href="#data-flow" title="Link to this heading">¶</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Physical GPIO ┐
+              ├─&gt; InputManager ──&gt; HIDController ──┬─&gt; BLE (optional)
+Virtual UI  ──┘                                    └─&gt; USB HID (optional)
+                                                   |
+                                              DebugInterface
+                                                   |
+                                        Virtual Controller UI
+</pre></div>
+</div>
+</section>
+<section id="firmware-responsibilities">
+<h2>Firmware Responsibilities<a class="headerlink" href="#firmware-responsibilities" title="Link to this heading">¶</a></h2>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Module</p></th>
+<th class="head"><p>Responsibility</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">code</span></code></p></td>
+<td><p>Firmware entry point; loads configuration, wires managers together, and runs the cooperative loop.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
+<td><p>Central configuration store for button ordering, pin mapping, debounce intervals, BLE/USB options, and log level.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">input_manager</span></code></p></td>
+<td><p>Polls GPIO-backed buttons (wired active-low with pull-ups) and emits debounced <a class="reference internal" href="reference.html#input_manager.InputEvents" title="input_manager.InputEvents"><code class="xref py py-class docutils literal notranslate"><span class="pre">InputEvents</span></code></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hid_controller</span></code></p></td>
+<td><p>Maintains active button state, translates logical buttons to HID report IDs, dispatches updates to BLE/USB outputs, and notifies observers.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ble_manager</span></code></p></td>
+<td><p>Orchestrates BLE advertising, pairing, and connection lifecycle; exposes the HID service to <a class="reference internal" href="reference.html#module-hid_controller" title="hid_controller"><code class="xref py py-mod docutils literal notranslate"><span class="pre">hid_controller</span></code></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">usb_hid_manager</span></code></p></td>
+<td><p>Mirrors HID reports over USB when the board is tethered for debugging.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">debug_interface</span></code></p></td>
+<td><p>Serial protocol for host tooling: accepts <code class="docutils literal notranslate"><span class="pre">PRESS</span></code>/<code class="docutils literal notranslate"><span class="pre">RELEASE</span></code>/<code class="docutils literal notranslate"><span class="pre">STATE?</span></code> commands, relays logs, and mirrors firmware state as JSON.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">firmware_logging</span></code></p></td>
+<td><p>Structured JSON logging utilities shared by firmware and host components.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">power_manager</span></code></p></td>
+<td><p>Placeholder for future battery and sleep management.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="host-tooling">
+<h2>Host Tooling<a class="headerlink" href="#host-tooling" title="Link to this heading">¶</a></h2>
+<p>The desktop UI (<code class="docutils literal notranslate"><span class="pre">tools/virtual_controller.py</span></code>) provides:</p>
+<ul class="simple">
+<li><p>Serial bridge in a background thread that keeps Qt responsive.</p></li>
+<li><p>Controller layout with clickable buttons that send virtual <code class="docutils literal notranslate"><span class="pre">PRESS</span></code> and <code class="docutils literal notranslate"><span class="pre">RELEASE</span></code> commands.</p></li>
+<li><p>Log viewer with filter/search/save controls. Start the UI with <code class="docutils literal notranslate"><span class="pre">--print-logs</span></code> to mirror JSON lines to stdout.</p></li>
+<li><p>BLE status reporting based on events forwarded by <a class="reference internal" href="reference.html#ble_manager.BLEManager" title="ble_manager.BLEManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">ble_manager.BLEManager</span></code></a>.</p></li>
+</ul>
+<p>See <a class="reference internal" href="reference.html"><span class="doc">API Reference</span></a> for module-level API documentation generated directly from the source.</p>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">Bluetooth HID Arcade Stick</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#data-flow">Data Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#firmware-responsibilities">Firmware Responsibilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#host-tooling">Host Tooling</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="hardware.html">Hardware Wiring</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reference.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">Bluetooth HID Arcade Stick</a></li>
+      <li>Next: <a href="hardware.html" title="next chapter">Hardware Wiring</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Paul Smith IV.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/overview.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

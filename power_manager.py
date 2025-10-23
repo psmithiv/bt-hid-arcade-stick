@@ -1,6 +1,4 @@
-"""
-.. module:: power_manager
-   :synopsis: Placeholder for power-management hooks.
+"""Placeholder for power-management hooks.
 
 Future enhancements (battery monitoring, sleep management, etc.) can be
 added here. For now we provide a stub interface so other components can
