@@ -262,8 +262,13 @@ class DebuggerWindow(QMainWindow):
         layout = QVBoxLayout()
         central.setLayout(layout)
 
-        self._status_label = QLabel("Status: Disconnected")
-        layout.addWidget(self._status_label)
+        status_row = QHBoxLayout()
+        self._status_label = QLabel("Serial: Disconnected")
+        self._ble_status_label = QLabel("-  BLE: Unknown")
+        status_row.addWidget(self._status_label)
+        status_row.addWidget(self._ble_status_label)
+        status_row.addStretch()
+        layout.addLayout(status_row)
 
         controls_layout = QHBoxLayout()
         self._button_widgets = {}
@@ -376,19 +381,20 @@ class DebuggerWindow(QMainWindow):
         self._update_log_filter_visibility()
 
         self._set_controls_enabled(False)
+        self._ble_status_label.setText("-  BLE: Waiting for serial...")
 
         if serial is None:
             self._log_warning(
                 "PySerial not available. Install with `pip install pyserial` to enable communication."
             )
-            self._status_label.setText("Status: PySerial missing")
+            self._status_label.setText("Serial: PySerial missing")
         else:
             port = serial_config.port or (self._auto_detect_port() if serial_config.auto_detect else None)
             if port:
                 self._log_info(f"Connecting to {port} @ {serial_config.baudrate}...")
                 self._open_serial(port, serial_config.baudrate)
             else:
-                self._status_label.setText("Status: Select a serial port with --port")
+                self._status_label.setText("Serial: Select a serial port with --port")
                 self._log_info("No serial port provided; launch with --port PATH or enable auto-detect support.")
 
     def closeEvent(self, event):  # noqa: D401 - Qt override
@@ -491,15 +497,17 @@ class DebuggerWindow(QMainWindow):
         """Update UI state and logs when the serial link connects or drops."""
         self._serial_connected = connected
         if connected:
-            self._status_label.setText("Status: Connected")
+            self._status_label.setText("Serial: Connected")
             self._log_info("Serial connected.")
             self._set_controls_enabled(True)
             self._send_command("STATE?")
+            self._ble_status_label.setText("-  BLE: Awaiting status...")
         else:
-            self._status_label.setText("Status: Disconnected")
+            self._status_label.setText("Serial: Disconnected")
             self._log_info("Serial disconnected.")
             self._set_controls_enabled(False)
             self._update_button_states(set())
+            self._ble_status_label.setText("-  BLE: Unknown")
 
     def _handle_serial_error(self, message: str):
         """Surface serial errors to the log view."""
@@ -524,6 +532,8 @@ class DebuggerWindow(QMainWindow):
             self._handle_state_message(data)
         elif msg_type == "READY":
             self._handle_ready_message(data)
+        if str(data.get("source", "")).upper() == "BLE":
+            self._handle_ble_status(data)
 
         level = data.get("level", "INFO")
         self._record_log(category, level, data, line)
@@ -543,7 +553,26 @@ class DebuggerWindow(QMainWindow):
             normalized = {str(name).upper() for name in buttons}
             if normalized:
                 self._valid_buttons = normalized
-        self._status_label.setText("Status: Ready")
+        self._status_label.setText("Serial: Ready")
+
+    def _handle_ble_status(self, payload: Dict[str, object]):
+        """Update BLE status label based on events from the firmware."""
+        message = payload.get("message")
+        event = str(payload.get("event", "") or "").upper()
+        if isinstance(message, str) and message.strip():
+            text = message.strip()
+        elif event:
+            text = event.title()
+        else:
+            text = "Status Unknown"
+        mode = payload.get("mode")
+        if mode:
+            text = f"{text} ({mode})"
+        active = payload.get("active")
+        if event == "PAIRING_ACTIVE":
+            suffix = "active" if bool(active) else "inactive"
+            text = f"Pairing {suffix}"
+        self._ble_status_label.setText(f"-  BLE: {text}")
 
     # ------------------------------------------------------------------
     # UI helpers
