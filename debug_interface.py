@@ -9,18 +9,11 @@ forwards, and the firmware state is mirrored back as structured JSON.
 import json
 import time
 
+import supervisor
+import sys
+
 from input_manager import InputEvents
 from firmware_logging import get_logger
-
-try:
-    import supervisor
-except ImportError:  # pragma: no cover - host environment
-    supervisor = None
-
-try:
-    import sys
-except ImportError:  # pragma: no cover - unlikely
-    sys = None
 
 
 class DebugInterface:
@@ -56,11 +49,6 @@ class DebugInterface:
             self._logger.info("Debug interface disabled by configuration.")
             return
 
-        if supervisor is None or sys is None:
-            self._enabled = False
-            self._logger.warning("Supervisor or sys modules are unavailable; disabling debug interface.")
-            return
-
         if self._broadcast_state:
             self._hid.set_state_callback(self.publish_state)
 
@@ -69,7 +57,7 @@ class DebugInterface:
 
     def poll(self):
         """Process inbound serial commands and manage periodic state reports."""
-        if not self._enabled or supervisor is None or sys is None:
+        if not self._enabled:
             return
 
         connected = supervisor.runtime.serial_connected

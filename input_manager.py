@@ -8,19 +8,12 @@ active-low with pull-up resistors; see :mod:`config` for the mapping.
 import time
 from collections import namedtuple
 
+import board  # type: ignore
+import digitalio  # type: ignore
+
 from firmware_logging import get_logger
 
 InputEvents = namedtuple("InputEvents", ["pressed", "released"])
-
-try:  # CircuitPython hardware modules (not available in host tests)
-    import board  # type: ignore
-except ImportError:  # pragma: no cover - host environment
-    board = None  # type: ignore
-
-try:
-    import digitalio  # type: ignore
-except ImportError:  # pragma: no cover - host environment
-    digitalio = None  # type: ignore
 
 
 class InputManager:
@@ -43,10 +36,6 @@ class InputManager:
 
         if not self._buttons:
             self._logger.warning("No buttons configured; input polling disabled.")
-            return
-
-        if digitalio is None:
-            self._logger.warning("digitalio module unavailable; hardware buttons will not be polled.")
             return
 
         self._initialize_pins(pin_map)
@@ -141,9 +130,6 @@ class InputManager:
         Accepts board pin objects or string names (e.g. 'D5').
         """
         if isinstance(raw_pin, str):
-            if board is None:
-                self._logger.error("Board module unavailable; cannot resolve pin name '%s'.", raw_pin)
-                return None
             attribute = raw_pin
             if not hasattr(board, attribute):
                 attribute = raw_pin.upper()

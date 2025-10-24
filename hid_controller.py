@@ -5,13 +5,70 @@ current controller state so redundant traffic is avoided. Button ordering
 must match the HID report descriptor; see :mod:`config` for the wiring map.
 """
 
+import struct
+
+from adafruit_hid import find_device
+
 from input_manager import InputEvents
 from firmware_logging import get_logger
 
-try:
-    from adafruit_hid.gamepad import Gamepad
-except ImportError:  # pragma: no cover - host environment / unit tests
-    Gamepad = None
+
+class _GamepadEndpoint:
+    """
+    Minimal HID gamepad endpoint inspired by Adafruit's reference implementation.
+
+    Manages a 16-button bitfield and suppresses duplicate reports to conserve
+    bandwidth over BLE and USB transports.
+    """
+
+    def __init__(self, devices):
+        self._device = find_device(devices, usage_page=0x01, usage=0x05)
+        self._report = bytearray(7)  # 1-byte report ID + 6-byte payload
+        self._last_report = bytearray(len(self._report))
+        self._buttons_state = 0
+        self._reset_axes()
+        self.reset_all()
+
+    def reset_all(self):
+        """Release all buttons and center joystick axes."""
+        self._buttons_state = 0
+        self._reset_axes()
+        self._send(always=True)
+
+    def set_buttons(self, buttons_state):
+        """
+        Update the button bitfield and send a report if anything changed.
+
+        :param int buttons_state: Bitfield describing pressed buttons (1-indexed).
+        """
+        buttons_state &= 0xFFFF
+        if buttons_state == self._buttons_state:
+            return
+        self._buttons_state = buttons_state
+        self._send()
+
+    def _reset_axes(self):
+        self._joy_x = 0
+        self._joy_y = 0
+        self._joy_z = 0
+        self._joy_rz = 0
+
+    def _send(self, always=False):
+        self._report[0] = 0x01  # Report ID expected by host
+        struct.pack_into(
+            "<Hbbbb",
+            self._report,
+            1,
+            self._buttons_state,
+            self._joy_x,
+            self._joy_y,
+            self._joy_z,
+            self._joy_rz,
+        )
+
+        if always or self._report != self._last_report:
+            self._device.send_report(self._report)
+            self._last_report[:] = self._report
 
 
 class HIDController:
@@ -30,11 +87,10 @@ class HIDController:
         self._usb_manager = usb_manager
         self._config = config or {}
         self._buttons = self._config.get("buttons", [])
-        self._button_map = {
-            name: index + 1 for index, name in enumerate(self._buttons)
-        }
+        self._button_map = {name: index + 1 for index, name in enumerate(self._buttons)}
         self._active_buttons = set()
         self._state_callback = None
+        self._button_mask = 0
 
         self._logger.info("Configuring HID controller with button layout: %s.", self._buttons)
 
@@ -88,11 +144,8 @@ class HIDController:
         if hid_service is None:
             self._logger.warning("BLE HID service is unavailable; BLE reports disabled.")
             return None
-        if Gamepad is None:
-            self._logger.warning("adafruit_hid.Gamepad module is unavailable; BLE reports disabled.")
-            return None
         try:
-            gamepad = Gamepad(hid_service.devices)
+            gamepad = _GamepadEndpoint(hid_service.devices)
             self._logger.debug("BLE gamepad interface initialized.")
             return gamepad
         except Exception as exc:  # pragma: no cover - runtime specific
@@ -105,18 +158,11 @@ class HIDController:
         if not hid_config.get("usb_enabled", True):
             self._logger.info("USB HID output disabled by configuration.")
             return None
-        if Gamepad is None:
-            self._logger.warning("adafruit_hid.Gamepad module is unavailable; USB reports disabled.")
-            return None
+
+        import usb_hid  # type: ignore
 
         try:
-            import usb_hid  # type: ignore
-        except ImportError:  # pragma: no cover - host environment / unit tests
-            self._logger.warning("usb_hid module is unavailable; USB reports disabled.")
-            return None
-
-        try:
-            gamepad = Gamepad(usb_hid.devices)
+            gamepad = _GamepadEndpoint(usb_hid.devices)
             self._logger.debug("USB gamepad interface initialized.")
             return gamepad
         except Exception as exc:  # pragma: no cover - runtime specific
@@ -142,45 +188,35 @@ class HIDController:
             pending_update = True
 
         if pending_update:
-            self._logger.debug("Active buttons: %s.", sorted(self._active_buttons))
-            self._send_report(input_events)
+            self._button_mask = self._build_button_mask(self._active_buttons)
+            self._logger.debug(
+                "Active buttons: %s (mask=0x%04X).", sorted(self._active_buttons), self._button_mask
+            )
+            self._send_report()
             self._notify_state_change()
 
-    def _send_report(self, input_events):
+    def _send_report(self):
         """Dispatch button state changes to BLE and USB gamepads."""
-        buttons_to_press = self._resolve_button_ids(input_events.pressed)
-        buttons_to_release = self._resolve_button_ids(input_events.released)
-
         if self._ble_manager.connected and self._ble_gamepad:
-            self._logger.debug(
-                "Dispatching BLE report press=%s release=%s.",
-                buttons_to_press,
-                buttons_to_release,
-            )
-            self._apply_gamepad_update(self._ble_gamepad, buttons_to_press, buttons_to_release)
+            self._logger.debug("Dispatching BLE button mask 0x%04X.", self._button_mask)
+            self._ble_gamepad.set_buttons(self._button_mask)
 
         if self._usb_gamepad:
-            self._logger.debug(
-                "Dispatching USB report press=%s release=%s.",
-                buttons_to_press,
-                buttons_to_release,
-            )
-            self._apply_gamepad_update(self._usb_gamepad, buttons_to_press, buttons_to_release)
+            self._logger.debug("Dispatching USB button mask 0x%04X.", self._button_mask)
+            self._usb_gamepad.set_buttons(self._button_mask)
 
         report_snapshot = {"buttons": sorted(self._active_buttons)}
         self._usb_manager.send_report(report_snapshot)
 
-    def _resolve_button_ids(self, button_names):
-        """Translate logical button names to gamepad button IDs."""
-        return [self._button_map[name] for name in button_names if name in self._button_map]
-
-    @staticmethod
-    def _apply_gamepad_update(gamepad, buttons_to_press, buttons_to_release):
-        """Apply button changes to a Gamepad instance."""
-        if buttons_to_press:
-            gamepad.press_buttons(*buttons_to_press)
-        if buttons_to_release:
-            gamepad.release_buttons(*buttons_to_release)
+    def _build_button_mask(self, active_buttons):
+        """Translate the current active button set to the HID bitmask."""
+        mask = 0
+        for name in active_buttons:
+            button_id = self._button_map.get(name)
+            if button_id is None:
+                continue
+            mask |= 1 << (button_id - 1)
+        return mask
 
     def _notify_state_change(self):
         """Notify observers of button state changes."""

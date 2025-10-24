@@ -1,20 +1,32 @@
 """Unit test scaffolding for the HID controller module."""
 
-try:
-    import unittest
-except ImportError:  # CircuitPython compatibility shim
-    unittest = None  # pragma: no cover
+import unittest
+
+import usb_hid
 
 from hid_controller import HIDController
 from config import CONTROLLER_CONFIG
 from input_manager import InputEvents
 
 
-class DummyHIDService:
-    """Minimal HIDService stand-in with devices attribute."""
+class DummyHIDDevice:
+    """Simple HID device that records outgoing reports."""
+
+    usage_page = 0x01
+    usage = 0x05
 
     def __init__(self):
-        self.devices = ()
+        self.reports = []
+
+    def send_report(self, report):
+        self.reports.append(bytes(report))
+
+
+class DummyHIDService:
+    """Minimal HIDService stand-in exposing available devices."""
+
+    def __init__(self):
+        self.devices = (DummyHIDDevice(),)
 
 
 class DummyBLEManager:
@@ -35,11 +47,11 @@ class RecordingUSBManager:
         self.reports.append(report)
 
 
-@unittest.skipIf(unittest is None, "unittest not available in this environment")
 class HIDControllerTest(unittest.TestCase):
     """Placeholder tests verifying high-level interactions."""
 
     def setUp(self):
+        usb_hid.devices = (DummyHIDDevice(),)
         self.ble_manager = DummyBLEManager()
         self.usb_manager = RecordingUSBManager()
         self.controller = HIDController(self.ble_manager, self.usb_manager, CONTROLLER_CONFIG)
@@ -58,5 +70,4 @@ class HIDControllerTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    if unittest is not None:
-        unittest.main()
+    unittest.main()

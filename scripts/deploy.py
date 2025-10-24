@@ -28,6 +28,10 @@ DIRS_TO_COPY = [
     "lib",
 ]
 
+EXTRA_FILES = [
+    ("sd/boot.py", "boot.py"),
+]
+
 CONFLICTING_PATHS = [
     Path("log_utils.py"),
     Path("log_utils.mpy"),
@@ -69,6 +73,15 @@ def deploy_project(volume: Path):
             print(f"Skipping missing file: {relative_path}")
             continue
         dst = volume / relative_path
+        print(f"Copying {src} -> {dst}")
+        copy_item(src, dst)
+
+    for src_path, dest_path in EXTRA_FILES:
+        src = PROJECT_ROOT / src_path
+        if not src.exists():
+            print(f"Skipping missing file: {src_path}")
+            continue
+        dst = volume / dest_path
         print(f"Copying {src} -> {dst}")
         copy_item(src, dst)
 

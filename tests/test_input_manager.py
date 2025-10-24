@@ -1,9 +1,47 @@
 """Unit test scaffolding for the input manager module."""
 
-try:
-    import unittest
-except ImportError:  # CircuitPython compatibility shim
-    unittest = None  # pragma: no cover
+import sys
+import types
+
+import unittest
+
+# Provide lightweight stubs for CircuitPython-specific modules.
+board = types.ModuleType("board")
+
+
+def _board_getattr(name):
+    return name
+
+
+setattr(board, "__getattr__", _board_getattr)
+sys.modules.setdefault("board", board)
+
+digitalio = types.ModuleType("digitalio")
+
+
+class _Pull:
+    UP = "UP"
+
+
+class _DigitalInOut:
+    def __init__(self, pin):
+        self._value = True
+
+    def switch_to_input(self, pull=None):
+        pass
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, new_value):
+        self._value = bool(new_value)
+
+
+setattr(digitalio, "Pull", _Pull)
+setattr(digitalio, "DigitalInOut", _DigitalInOut)
+sys.modules.setdefault("digitalio", digitalio)
 
 from input_manager import InputManager, InputEvents
 from config import CONTROLLER_CONFIG

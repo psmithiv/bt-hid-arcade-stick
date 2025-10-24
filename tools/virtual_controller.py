@@ -45,12 +45,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 from firmware_logging import INFO, get_level_by_name
 
-try:  # pyserial is required for host <-> device communication.
-    import serial  # type: ignore
-    from serial.tools import list_ports  # type: ignore
-except ImportError:  # pragma: no cover - runtime dependency check
-    serial = None  # type: ignore
-    list_ports = None  # type: ignore
+import serial  # type: ignore
+from serial.tools import list_ports  # type: ignore
 
 SYSTEM_BUTTONS = ["HOME", "START", "SELECT", "PAIRING"]
 DEFAULT_BAUDRATE = 115_200
