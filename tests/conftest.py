@@ -189,7 +189,7 @@ hid_module = types.ModuleType("adafruit_ble.services.standard.hid")
 
 
 class _HIDService:
-    def __init__(self):
+    def __init__(self, *_, **__):
         self.devices = ()
 
 

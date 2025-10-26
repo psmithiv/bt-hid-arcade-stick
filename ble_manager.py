@@ -15,6 +15,7 @@ from adafruit_ble.services.standard.hid import HIDService
 import digitalio
 
 from firmware_logging import get_logger
+from hid_report import GAMEPAD_REPORT_DESCRIPTOR
 
 
 class BLEManager:
@@ -248,7 +249,12 @@ class BLEManager:
             pass  # Some adapters may not allow renaming.
 
         try:
-            self._hid_service = HIDService()
+            try:
+                self._hid_service = HIDService(report_descriptor=GAMEPAD_REPORT_DESCRIPTOR)
+            except TypeError:
+                # Older library versions without the kwarg fall back to defaults.
+                self._logger.debug("HIDService does not accept a custom descriptor; using default layout.")
+                self._hid_service = HIDService()
             self._logger.debug("HIDService instantiated.")
             self._log_diagnostics("hidservice_initialized")
         except Exception as exc:  # pragma: no cover - hardware specific failure

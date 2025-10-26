@@ -29,6 +29,20 @@ def main():
     ble_manager = BLEManager(CONTROLLER_CONFIG.get("ble", {}))
     usb_config = CONTROLLER_CONFIG.get("hid", {})
     usb_manager = USBHIDManager(enabled=usb_config.get("usb_enabled", True))
+    if usb_manager.enabled:
+        try:
+            import usb_hid  # type: ignore
+
+            for device in usb_hid.devices:
+                logger.info(
+                    "USB HID interface: usage_page=0x%02X usage=0x%02X report_len=%d descriptor_len=%d",
+                    getattr(device, "usage_page", -1),
+                    getattr(device, "usage", -1),
+                    getattr(device, "report_length", -1),
+                    len(getattr(device, "report_descriptor", b"")),
+                )
+        except Exception as exc:  # pragma: no cover - host runtime only
+            logger.warning("Unable to inspect USB HID descriptor: %s", exc)
     input_manager = InputManager(CONTROLLER_CONFIG)
     hid_controller = HIDController(ble_manager, usb_manager, CONTROLLER_CONFIG)
     power_manager = PowerManager(CONTROLLER_CONFIG.get("power", {}))

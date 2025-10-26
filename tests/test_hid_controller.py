@@ -68,6 +68,13 @@ class HIDControllerTest(unittest.TestCase):
         self.controller.process_inputs(events)
         self.assertEqual(observed[-1], ["B"])
 
+    def test_shoulder_buttons_update_mask(self):
+        events = InputEvents(pressed={"L2", "R2"}, released=set())
+        self.controller.process_inputs(events)
+        l2_bit = 1 << CONTROLLER_CONFIG["buttons"].index("L2")
+        r2_bit = 1 << CONTROLLER_CONFIG["buttons"].index("R2")
+        self.assertEqual(self.controller._button_mask, l2_bit | r2_bit)
+
 
 if __name__ == "__main__":
     unittest.main()

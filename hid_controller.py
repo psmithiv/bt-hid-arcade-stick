@@ -11,6 +11,7 @@ from adafruit_hid import find_device
 
 from input_manager import InputEvents
 from firmware_logging import get_logger
+from hid_report import GAMEPAD_INPUT_REPORT_LENGTH, GAMEPAD_REPORT_ID
 
 
 class _GamepadEndpoint:
@@ -23,7 +24,7 @@ class _GamepadEndpoint:
 
     def __init__(self, devices):
         self._device = find_device(devices, usage_page=0x01, usage=0x05)
-        self._report = bytearray(7)  # 1-byte report ID + 6-byte payload
+        self._report = bytearray(GAMEPAD_INPUT_REPORT_LENGTH)
         self._last_report = bytearray(len(self._report))
         self._buttons_state = 0
         self._reset_axes()
@@ -54,7 +55,7 @@ class _GamepadEndpoint:
         self._joy_rz = 0
 
     def _send(self, always=False):
-        self._report[0] = 0x01  # Report ID expected by host
+        self._report[0] = GAMEPAD_REPORT_ID  # Report ID expected by host
         struct.pack_into(
             "<Hbbbb",
             self._report,

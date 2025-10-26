@@ -16,6 +16,7 @@ DEFAULT_VOLUME = Path("/Volumes/CIRCUITPY")
 FILES_TO_COPY = [
     "code.py",
     "config.py",
+    "hid_report.py",
     "input_manager.py",
     "hid_controller.py",
     "ble_manager.py",
@@ -25,7 +26,7 @@ FILES_TO_COPY = [
     "firmware_logging.py",
 ]
 DIRS_TO_COPY = [
-    "lib",
+    # "lib",
 ]
 
 EXTRA_FILES = [
