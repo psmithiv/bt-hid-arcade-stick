@@ -20,7 +20,7 @@ PRODUCT = "Arcade Gamepad v2"
 
 # Where available, set human-readable USB identification strings before enabling interfaces.
 # These APIs are optional and vary by CircuitPython version; guard them.
-try:
+try:controller
     import usb_cdc
     if hasattr(usb_cdc, "set_usb_identification"):
         usb_cdc.set_usb_identification(
