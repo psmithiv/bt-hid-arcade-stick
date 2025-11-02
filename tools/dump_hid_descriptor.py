@@ -67,11 +67,15 @@ def main():
 
     lines = _run_ioreg(args.device)
     descriptors = []
+    seen = set()
 
     for line in lines:
         match = REPORT_RE.search(line)
         if match:
-            descriptors.append(match.group(1))
+            hex_blob = match.group(1)
+            if hex_blob not in seen:
+                seen.add(hex_blob)
+                descriptors.append(hex_blob)
 
     if not descriptors:
         sys.exit(

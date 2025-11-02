@@ -37,12 +37,16 @@ class DebugInterface:
         self._broadcast_state = self._config.get("state_broadcast", True)
         self._virtual_pressed = set()
         self._last_state_signature = None
-        self._valid_buttons = set(self._hid.button_names)
+        self._button_order = list(self._hid.button_names)
+        self._valid_buttons = set(self._button_order)
         self._virtual_only_buttons = set()
-        extra_virtual = {str(name).upper() for name in self._config.get("virtual_buttons", [])}
-        if extra_virtual:
-            self._virtual_only_buttons = extra_virtual - self._valid_buttons
-            self._valid_buttons.update(extra_virtual)
+        for extra in self._config.get("virtual_buttons", []):
+            name = str(extra).upper()
+            if name in self._valid_buttons:
+                continue
+            self._virtual_only_buttons.add(name)
+            self._valid_buttons.add(name)
+            self._button_order.append(name)
         self._serial_connected = False
 
         if not self._enabled:
@@ -73,12 +77,20 @@ class DebugInterface:
         """Emit the current controller state to the host debugger."""
         if not self._broadcast_state:
             return
+        axes = self._hid.axis_state
         payload = {
-            "buttons": buttons,
+            "buttons": list(buttons),
             "virtual": sorted(self._virtual_pressed),
+            "hat": self._hid.hat_state,
+            "axes": {"x": axes[0], "y": axes[1]},
             "timestamp": time.monotonic(),
         }
-        signature = (tuple(payload["buttons"]), tuple(payload["virtual"]))
+        signature = (
+            tuple(payload["buttons"]),
+            tuple(payload["virtual"]),
+            payload["hat"],
+            axes,
+        )
         if signature == self._last_state_signature:
             return
         self._last_state_signature = signature
@@ -106,7 +118,7 @@ class DebugInterface:
         elif command == "RELEASE" and args:
             self._handle_release(args[0])
         elif command == "STATE?":
-            self.publish_state(sorted(self._hid.active_buttons))
+            self.publish_state(self._hid.ordered_active_inputs())
         elif command == "PAIR":
             self._trigger_pairing()
         elif command == "LOG" and len(args) >= 2:
@@ -207,14 +219,13 @@ class DebugInterface:
                 "LOG <LEVEL> <LOGGER> <MESSAGE>",
                 "HELP",
             ],
-            "buttons": self._hid.button_names,
+            "buttons": list(self._button_order),
         }
         self._send_message("HELP", help_text)
 
     def _announce_ready(self):
         """Notify host tools that the interface is active."""
-        buttons = sorted(self._valid_buttons)
-        self._send_message("READY", {"buttons": buttons})
+        self._send_message("READY", {"buttons": list(self._button_order)})
 
     @staticmethod
     def _send_message(label, payload):

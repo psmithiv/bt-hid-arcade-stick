@@ -1,4 +1,4 @@
-# CIRCUITPY/boot.py — 16-button gamepad w/ 4 signed axes (X,Y,Z,Rz), Report ID 1
+# CIRCUITPY/boot.py — 16-button gamepad with hat/axes, Report ID 1
 import usb_hid
 import binascii
 import time
@@ -22,7 +22,7 @@ def _unique_serial():
 
 SERIAL = _unique_serial()
 MANUFACTURER = "Plyxal"
-PRODUCT = "Arcade Gamepad v2"
+PRODUCT = "Arcade Gamepad v3"
 
 # Where available, set human-readable USB identification strings before enabling interfaces.
 # These APIs are optional and vary by CircuitPython version; guard them.

@@ -11,12 +11,11 @@ through the debug interface.
 
 from firmware_logging import DEBUG
 
-# Logical button order for the controller; handshake with HID descriptor.
-BUTTONS = [
-    "UP",
-    "DOWN",
-    "LEFT",
-    "RIGHT",
+# Logical button order for the HID descriptor (16 straight buttons).
+# Prioritize the primary face + shoulder buttons in usages 1-8, place system
+# buttons immediately after, and keep the D-pad directions in 13-16. The D-pad
+# will also drive the hat switch and X/Y axes so Steam/macOS detect a modern pad.
+HID_BUTTONS = [
     "A",
     "B",
     "X",
@@ -28,7 +27,26 @@ BUTTONS = [
     "START",
     "SELECT",
     "HOME",
+    "PAIRING",  # Reserved / virtual-only slot to keep the descriptor at 16 buttons.
+    "UP",
+    "DOWN",
+    "LEFT",
+    "RIGHT",
 ]
+
+# Convenience aliases for the D-pad when translating into hat/axes.
+DPAD_DEFAULTS = {
+    "up": "UP",
+    "down": "DOWN",
+    "left": "LEFT",
+    "right": "RIGHT",
+    "axis_min": -127,
+    "axis_max": 127,
+    "hat_neutral": 0x00,
+}
+
+# InputManager polls every entry here (buttons only; virtual buttons ignored when unmapped).
+INPUT_BUTTONS = list(HID_BUTTONS)
 
 # GPIO mapping placeholder. Update these entries with the actual board pins.
 # Example: "UP": "D5"  (strings are resolved via the board module)
@@ -94,7 +112,15 @@ BLE_SETTINGS = {
 LOG_LEVEL = DEBUG
 
 CONTROLLER_CONFIG = {
-    "buttons": BUTTONS,
+    "buttons": INPUT_BUTTONS,
+    "hid_buttons": HID_BUTTONS,
+    "dpad_up": DPAD_DEFAULTS["up"],
+    "dpad_down": DPAD_DEFAULTS["down"],
+    "dpad_left": DPAD_DEFAULTS["left"],
+    "dpad_right": DPAD_DEFAULTS["right"],
+    "axis_min": DPAD_DEFAULTS["axis_min"],
+    "axis_max": DPAD_DEFAULTS["axis_max"],
+    "hat_neutral": DPAD_DEFAULTS["hat_neutral"],
     "pin_map": PIN_MAP,
     "debounce_ms": DEBOUNCE_MS,
     "hid": HID_SETTINGS,

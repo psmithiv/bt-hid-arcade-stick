@@ -18,8 +18,8 @@ class _GamepadEndpoint:
     """
     Minimal HID gamepad endpoint inspired by Adafruit's reference implementation.
 
-    Manages a 16-button bitfield and suppresses duplicate reports to conserve
-    bandwidth over BLE and USB transports.
+    Manages a 16-button bitfield, hat switch, and X/Y axes while suppressing
+    duplicate reports to conserve bandwidth over BLE and USB transports.
     """
 
     def __init__(self, devices):
@@ -27,44 +27,60 @@ class _GamepadEndpoint:
         self._report = bytearray(GAMEPAD_INPUT_REPORT_LENGTH)
         self._last_report = bytearray(len(self._report))
         self._buttons_state = 0
-        self._reset_axes()
+        self._hat_state = 0x08  # Neutral hat (null state per HID spec)
+        self._axes_state = (0, 0)  # X, Y axes (signed)
         self.reset_all()
 
     def reset_all(self):
-        """Release all buttons and center joystick axes."""
+        """Release all buttons, neutralize the hat/axes, and send a neutral report."""
         self._buttons_state = 0
-        self._reset_axes()
+        self._hat_state = 0x08
+        self._axes_state = (0, 0)
         self._send(always=True)
 
-    def set_buttons(self, buttons_state):
+    def set_state(self, buttons_state, hat_state, axes_state):
         """
-        Update the button bitfield and send a report if anything changed.
+        Update the HID state and send a report if anything changed.
 
-        :param int buttons_state: Bitfield describing pressed buttons (1-indexed).
+        :param int buttons_state: Button bitfield (1-indexed ordering).
+        :param int hat_state: Hat switch value (0-7 directions, 8 = neutral).
+        :param tuple[int, int] axes_state: Signed X/Y axis values (-127 to 127).
         """
         buttons_state &= 0xFFFF
-        if buttons_state == self._buttons_state:
+        hat_state = hat_state & 0x0F
+        if not isinstance(axes_state, (tuple, list)) or len(axes_state) != 2:
+            axes_state = (0, 0)
+        x_axis = _clamp_axis(axes_state[0])
+        y_axis = _clamp_axis(axes_state[1])
+        axes_state = (x_axis, y_axis)
+
+        if (
+            buttons_state == self._buttons_state
+            and hat_state == self._hat_state
+            and axes_state == self._axes_state
+        ):
             return
         self._buttons_state = buttons_state
+        self._hat_state = hat_state
+        self._axes_state = axes_state
         self._send()
-
-    def _reset_axes(self):
-        self._joy_x = 0
-        self._joy_y = 0
-        self._joy_z = 0
-        self._joy_rz = 0
 
     def _send(self, always=False):
         self._report[0] = GAMEPAD_REPORT_ID  # Report ID expected by host
         struct.pack_into(
-            "<Hbbbb",
+            "<H",
             self._report,
             1,
             self._buttons_state,
-            self._joy_x,
-            self._joy_y,
-            self._joy_z,
-            self._joy_rz,
+        )
+        # Upper nibble is padding (reserved high), HID spec recommends 0xF when unused.
+        self._report[3] = (self._hat_state & 0x0F) | 0xF0
+        struct.pack_into(
+            "<bb",
+            self._report,
+            4,
+            self._axes_state[0],
+            self._axes_state[1],
         )
 
         if always or self._report != self._last_report:
@@ -87,13 +103,25 @@ class HIDController:
         self._ble_manager = ble_manager
         self._usb_manager = usb_manager
         self._config = config or {}
-        self._buttons = self._config.get("buttons", [])
+        self._buttons = list(self._config.get("hid_buttons", self._config.get("buttons", [])))
+        self._valid_inputs = set(self._buttons)
         self._button_map = {name: index + 1 for index, name in enumerate(self._buttons)}
         self._active_buttons = set()
         self._state_callback = None
         self._button_mask = 0
+        self._hat_neutral = int(self._config.get("hat_neutral", 0x08))
+        self._hat_state = self._hat_neutral
+        self._axes_state = (0, 0)
+        self._axis_min = _clamp_axis(self._config.get("axis_min", -127))
+        self._axis_max = _clamp_axis(self._config.get("axis_max", 127))
+        if self._axis_min >= self._axis_max:
+            self._axis_min, self._axis_max = -127, 127
+        self._dpad_up = self._config.get("dpad_up", "UP")
+        self._dpad_down = self._config.get("dpad_down", "DOWN")
+        self._dpad_left = self._config.get("dpad_left", "LEFT")
+        self._dpad_right = self._config.get("dpad_right", "RIGHT")
 
-        self._logger.info("Configuring HID controller with button layout: %s.", self._buttons)
+        self._logger.info("Configuring HID controller with buttons=%s.", self._buttons)
 
         self._ble_gamepad = self._create_ble_gamepad()
         self._usb_gamepad = self._create_usb_gamepad()
@@ -101,7 +129,7 @@ class HIDController:
     @property
     def button_names(self):
         """
-        Return the ordered list of logical button names.
+        Return the ordered list of HID button names.
 
         :returns: List of button identifiers matching the HID descriptor order.
         :rtype: list[str]
@@ -118,6 +146,35 @@ class HIDController:
         """
         return set(self._active_buttons)
 
+    @property
+    def hat_state(self):
+        """
+        Return the current hat switch value (1-8 directions, 0 = neutral).
+
+        :returns: Integer hat value compatible with HID hat switch usage.
+        :rtype: int
+        """
+        return int(self._hat_state)
+
+    @property
+    def axis_state(self):
+        """
+        Return the current signed X/Y axis tuple.
+
+        :returns: Tuple ``(x, y)`` where each element is in the -127..127 range.
+        :rtype: tuple[int, int]
+        """
+        return (int(self._axes_state[0]), int(self._axes_state[1]))
+
+    def ordered_active_inputs(self):
+        """
+        Return the ordered list of active HID buttons.
+
+        :returns: Ordered list of logical inputs currently pressed.
+        :rtype: list[str]
+        """
+        return self._ordered_active_buttons()
+
     def set_state_callback(self, callback):
         """
         Register a callback invoked when button state changes.
@@ -133,8 +190,8 @@ class HIDController:
         :param Iterable[str] pressed: Logical buttons to mark as pressed.
         :param Iterable[str] released: Logical buttons to mark as released.
         """
-        pressed = {name for name in (pressed or []) if name in self._button_map}
-        released = {name for name in (released or []) if name in self._button_map}
+        pressed = {name for name in (pressed or []) if name in self._valid_inputs}
+        released = {name for name in (released or []) if name in self._valid_inputs}
         if not pressed and not released:
             return
         self.process_inputs(InputEvents(pressed=pressed, released=released))
@@ -190,23 +247,49 @@ class HIDController:
 
         if pending_update:
             self._button_mask = self._build_button_mask(self._active_buttons)
+            ordered_buttons = self._ordered_active_buttons()
+            # For modern hosts we publish hat and axis data derived from the D-pad.
+            self._hat_state = self._compute_hat_state()
+            self._axes_state = self._compute_axis_state()
             self._logger.debug(
-                "Active buttons: %s (mask=0x%04X).", sorted(self._active_buttons), self._button_mask
+                "Active buttons: %s (mask=0x%04X hat=%s axes=%s).",
+                ordered_buttons,
+                self._button_mask,
+                self._hat_state,
+                self._axes_state,
             )
-            self._send_report()
-            self._notify_state_change()
+            self._send_report(ordered_buttons)
+            self._notify_state_change(ordered_buttons)
 
-    def _send_report(self):
+    def _send_report(self, ordered_buttons):
         """Dispatch button state changes to BLE and USB gamepads."""
         if self._ble_manager.connected and self._ble_gamepad:
-            self._logger.debug("Dispatching BLE button mask 0x%04X.", self._button_mask)
-            self._ble_gamepad.set_buttons(self._button_mask)
+            self._logger.debug(
+                "Dispatching BLE state mask=0x%04X hat=%s axes=%s.",
+                self._button_mask,
+                self._hat_state,
+                self._axes_state,
+            )
+            self._ble_gamepad.set_state(self._button_mask, self._hat_state, self._axes_state)
 
         if self._usb_gamepad:
-            self._logger.debug("Dispatching USB button mask 0x%04X.", self._button_mask)
-            self._usb_gamepad.set_buttons(self._button_mask)
+            self._logger.debug(
+                "Dispatching USB state mask=0x%04X hat=%s axes=%s.",
+                self._button_mask,
+                self._hat_state,
+                self._axes_state,
+            )
+            self._usb_gamepad.set_state(self._button_mask, self._hat_state, self._axes_state)
 
-        report_snapshot = {"buttons": sorted(self._active_buttons)}
+        report_snapshot = {
+            "buttons": list(ordered_buttons),
+            "inputs": list(ordered_buttons),
+            "hat": self._hat_state,
+            "axes": {
+                "x": self._axes_state[0],
+                "y": self._axes_state[1],
+            },
+        }
         self._usb_manager.send_report(report_snapshot)
 
     def _build_button_mask(self, active_buttons):
@@ -219,11 +302,80 @@ class HIDController:
             mask |= 1 << (button_id - 1)
         return mask
 
-    def _notify_state_change(self):
+    def _notify_state_change(self, ordered_inputs):
         """Notify observers of button state changes."""
         if self._state_callback is None:
             return
         try:
-            self._state_callback(sorted(self._active_buttons))
+            self._state_callback(list(ordered_inputs))
         except Exception as exc:  # pragma: no cover - callback safety
             self._logger.warning("State callback invocation failed: %s.", exc)
+
+    def _ordered_active_buttons(self):
+        """Return active buttons ordered according to the HID descriptor."""
+        if not self._active_buttons:
+            return []
+        return [name for name in self._buttons if name in self._active_buttons]
+
+    # ------------------------------------------------------------------
+    # Internal helpers for derived state
+
+    def _compute_hat_state(self):
+        """Convert the active D-pad buttons into a HID hat value."""
+        up, down, left, right = self._dpad_status()
+        if up and right:
+            return 2
+        if right and down:
+            return 4
+        if down and left:
+            return 6
+        if left and up:
+            return 8
+        if up:
+            return 1
+        if right:
+            return 3
+        if down:
+            return 5
+        if left:
+            return 7
+        return self._hat_neutral  # Neutral
+
+    def _compute_axis_state(self):
+        """Generate signed X/Y axis values from the D-pad."""
+        up, down, left, right = self._dpad_status()
+        x_axis = self._axis_value(left, right)
+        y_axis = self._axis_value(up, down)
+        return (x_axis, y_axis)
+
+    def _dpad_status(self):
+        """Return booleans describing D-pad activation, canceling opposites."""
+        up = self._dpad_up in self._active_buttons
+        down = self._dpad_down in self._active_buttons
+        left = self._dpad_left in self._active_buttons
+        right = self._dpad_right in self._active_buttons
+
+        if up and down:
+            up = down = False
+        if left and right:
+            left = right = False
+        return up, down, left, right
+
+    def _axis_value(self, negative_active, positive_active):
+        """Helper translating digital inputs to signed axis values."""
+        if negative_active == positive_active:
+            return 0
+        return self._axis_min if negative_active else self._axis_max
+
+
+def _clamp_axis(value, minimum=-127, maximum=127):
+    """Clamp axis values to the signed 8-bit HID range."""
+    try:
+        numeric = int(value)
+    except Exception:
+        numeric = 0
+    if numeric < minimum:
+        return minimum
+    if numeric > maximum:
+        return maximum
+    return numeric
